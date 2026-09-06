@@ -77,7 +77,7 @@ jobs:
           echo "${GPG_KEY}" | gpg --batch --import
           gpg --list-keys
       - name: "☕️ Setup JDK"
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
           java-version: ${{ env.JAVA_VERSION }}
@@ -224,7 +224,7 @@ jobs:
         # staged from a JDK 25 runner. This is a NEW reproducibility pin -
         # keep $JAVA_VERSION_MICRONAUT synced with the secondary JDK in
         # etc/bin/Dockerfile so verifiers can reproduce the resulting JARs.
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           distribution: liberica
           java-version: ${{ env.JAVA_VERSION_MICRONAUT }}
@@ -247,7 +247,7 @@ jobs:
         # downstream checksum/artifact-list combination steps all expect the
         # default JDK 21 toolchain. Also keeps any future steps that touch the
         # repository's own (non-Micronaut) Gradle config on the documented JDK.
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           distribution: liberica
           java-version: ${{ env.JAVA_VERSION }}
@@ -672,7 +672,7 @@ jobs:
       - name: "📅 Ensure Common Build Date" # to ensure a reproducible build
         run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
       - name: "☕️ Setup JDK"
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
           java-version: ${{ env.JAVA_VERSION }}
@@ -712,7 +712,7 @@ jobs:
         with:
           ref: ${{ env.TAG }}
       - name: "☕️ Setup JDK"
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
           java-version: ${{ env.JAVA_VERSION }}

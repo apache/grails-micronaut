@@ -68,7 +68,7 @@ jobs:
         # Both, in one step. The last version listed becomes the default JAVA_HOME (the Grails 8
         # side); the fixture step below switches to the matching JAVA_HOME_<major>_X64 for its
         # single invocation.
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           distribution: liberica
           java-version: |
