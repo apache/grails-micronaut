@@ -248,7 +248,7 @@ class SbomPlugin implements Plugin<Project> {
                                 type: ExternalReference.Type.WEBSITE
                         ),
                         new ExternalReference(
-                                url: 'https://github.com/apache/grails-core',
+                                url: 'https://github.com/apache/grails-micronaut',
                                 type: ExternalReference.Type.VCS
                         ),
                         new ExternalReference(

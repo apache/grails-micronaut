@@ -21,23 +21,23 @@
     See the License for the specific language governing permissions and
     limitations under the License.
 -->
-  <Project rdf:about="https://grails.apache.org">
-    <created>2025-01-25</created>
+  <Project rdf:about="https://github.com/apache/grails-micronaut">
+    <created>2026-04-05</created>
     <license rdf:resource="https://spdx.org/licenses/Apache-2.0" />
-    <name>Apache Grails</name>
+    <name>Apache Grails Micronaut</name>
     <homepage rdf:resource="https://grails.apache.org" />
     <asfext:pmc rdf:resource="https://grails.apache.org" />
-    <shortdesc>Grails - the Groovy Web Application Framework</shortdesc>
-    <description>Grails is a powerful Groovy-based web application framework for the JVM built on top of Spring Boot that has many plugins to further extend its functionality.</description>
-    <bug-database rdf:resource="https://github.com/apache/grails-core/issues" />
+    <shortdesc>Grails Micronaut plugin and Micronaut-specific Grails BOMs</shortdesc>
+    <description>Apache Grails Micronaut provides the Grails Micronaut plugin and related BOMs so Grails applications can consume Micronaut. It depends on published Apache Grails Core artifacts.</description>
+    <bug-database rdf:resource="https://github.com/apache/grails-micronaut/issues" />
     <mailing-list rdf:resource="https://grails.apache.org/community.html" />
     <download-page rdf:resource="https://grails.apache.org/download.html" />
     <programming-language>Groovy</programming-language>
     <category rdf:resource="https://projects.apache.org/category/web-framework" />
     <repository>
       <GitRepository>
-        <location rdf:resource="https://gitbox.apache.org/repos/asf/grails-core.git"/>
-        <browse rdf:resource="http://github.com/apache/grails-core"/>
+        <location rdf:resource="https://gitbox.apache.org/repos/asf/grails-micronaut.git"/>
+        <browse rdf:resource="https://github.com/apache/grails-micronaut"/>
       </GitRepository>
     </repository>
   </Project>

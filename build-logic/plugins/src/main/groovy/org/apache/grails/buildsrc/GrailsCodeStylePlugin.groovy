@@ -41,7 +41,7 @@ import org.gradle.api.provider.Provider
 class GrailsCodeStylePlugin implements Plugin<Project> {
 
     // The directory-override keys keep the legacy 'grails.codestyle.dir.*' names so existing
-    // project configuration (e.g. grails-forge's custom checkstyle dir) keeps working unchanged.
+    // project configuration keeps working unchanged.
     static String CHECKSTYLE_DIR_PROPERTY = 'grails.codestyle.dir.checkstyle'
     static String CHECKSTYLE_ENABLED_PROPERTY = 'grails.code-style.enabled.checkstyle'
     static String CHECKSTYLE_CONFIG_FILE_NAME = 'checkstyle.xml'
@@ -152,7 +152,7 @@ class GrailsCodeStylePlugin implements Plugin<Project> {
                 task.enabled = false
             }
 
-            // Exclude build directory from Checkstyle task sources to ignore generated sources (e.g. for grails-forge)
+            // Exclude build directory from Checkstyle task sources to ignore generated sources
             // Checked via absolute path to ensure platform-independent separator handling
             task.exclude { org.gradle.api.file.FileTreeElement element ->
                 element.file.absolutePath.contains(File.separator + 'build' + File.separator)

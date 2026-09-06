@@ -16,6 +16,7 @@
 #
 # see https://s.apache.org/asfyaml
 github:
+  default_branch: 8.0.x
   # deployment environments to delay releasing until the necessary steps have completed
   environments:
     close:
@@ -42,18 +43,6 @@ github:
           type: User
       wait_timer: 0
       prevent_self_review: false
-    sdkman:
-      required_reviewers:
-        - id: jdaugherty
-          type: User
-        - id: matrei
-          type: User
-        - id: jamesfredley
-          type: User
-        - id: sbglasius
-          type: User
-      wait_timer: 0
-      prevent_self_review: false
     release:
       required_reviewers:
         - id: jdaugherty
@@ -66,7 +55,7 @@ github:
           type: User
       wait_timer: 0
       prevent_self_review: false
-  description: "Grails - the Web Application Framework"
+  description: "Apache Grails Micronaut integration"
   homepage: https://grails.apache.org/
   rulesets:
     - name: "Default Branch Protection"

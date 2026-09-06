@@ -20,14 +20,13 @@ plugins {
     id 'org.apache.grails.buildsrc.properties'
     id 'org.apache.grails.buildsrc.compile'
     id 'org.apache.grails.buildsrc.dependency-validator'
+    id 'org.apache.grails.gradle.grails-web'
+    id 'org.apache.grails.gradle.grails-gsp'
+    id 'cloud.wondrify.asset-pipeline'
 }
 
 version = '0.1'
 group = 'micronaut.hibernate5'
-
-apply plugin: 'org.apache.grails.gradle.grails-web'
-apply plugin: 'cloud.wondrify.asset-pipeline'
-apply plugin: 'org.apache.grails.gradle.grails-gsp'
 
 dependencies {
     implementation enforcedPlatform(project(':grails-hibernate5-micronaut-bom'))
@@ -36,7 +35,7 @@ dependencies {
     implementation 'io.micronaut.serde:micronaut-serde-jackson'
     implementation 'org.apache.grails:grails-dependencies-starter-web'
     implementation 'org.apache.grails:grails-data-hibernate5'
-    implementation 'org.apache.grails:grails-micronaut'
+    implementation "org.apache.grails:grails-micronaut:$projectVersion"
 
     annotationProcessor enforcedPlatform(project(':grails-hibernate5-micronaut-bom'))
     annotationProcessor 'io.micronaut:micronaut-inject-java'

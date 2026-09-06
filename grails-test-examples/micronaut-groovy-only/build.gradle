@@ -20,12 +20,11 @@ plugins {
     id 'org.apache.grails.buildsrc.properties'
     id 'org.apache.grails.buildsrc.dependency-validator'
     id 'org.apache.grails.buildsrc.compile'
+    id 'org.apache.grails.gradle.grails-web'
 }
 
 version = '0.1'
 group = 'micronautgroovyonly'
-
-apply plugin: 'org.apache.grails.gradle.grails-web'
 
 // This module intentionally has NO annotationProcessor dependencies.
 // It validates that a Groovy-only Grails application works with
@@ -37,7 +36,7 @@ dependencies {
     implementation enforcedPlatform(project(':grails-micronaut-bom'))
 
     implementation 'org.apache.grails:grails-dependencies-starter-web'
-    implementation 'org.apache.grails:grails-micronaut'
+    implementation "org.apache.grails:grails-micronaut:$projectVersion"
 
     runtimeOnly 'com.h2database:h2'
     runtimeOnly 'org.apache.tomcat:tomcat-jdbc'

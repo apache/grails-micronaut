@@ -17,18 +17,22 @@
  *  under the License.
  */
 import org.apache.tools.ant.DirectoryScanner
-import org.gradle.api.initialization.resolve.RepositoriesMode
 
 pluginManagement {
-    includeBuild('./grails-gradle') {
-        name = 'grails-gradle'
-    }
     includeBuild('./build-logic') {
         name = 'build-logic-root'
     }
     apply from: file('gradle/plugin-repositories.gradle')
     repositories {
         configurePluginRepositories(delegate)
+    }
+    plugins {
+        def grailsVersion = providers.gradleProperty('projectVersion').get()
+        id 'org.apache.grails.gradle.grails-gsp' version grailsVersion
+        id 'org.apache.grails.gradle.grails-plugin' version grailsVersion
+        id 'org.apache.grails.gradle.grails-web' version grailsVersion
+        id 'cloud.wondrify.asset-pipeline' version '5.2.0-M3'
+        id 'org.nosphere.apache.rat' version '0.8.1'
     }
 }
 
@@ -38,26 +42,15 @@ plugins {
     id 'org.apache.grails.buildsrc.repo'
 }
 
-// NOTE: Known Gradle deprecation warnings (scheduled for removal in Gradle 10):
-// 1. StartParameter.isConfigurationCacheRequested - from org.asciidoctor.jvm.convert plugin (4.0.5)
-//    Fix available in asciidoctor-gradle-plugin 5.0.0+ (currently alpha)
-//    Tracking: https://github.com/asciidoctor/asciidoctor-gradle-plugin/issues/756
-
 def isCI = System.getenv().containsKey('CI')
 def isLocal = !isCI
 def isReproducibleBuild = System.getenv('SOURCE_DATE_EPOCH') != null
-if (isReproducibleBuild) {
-    gradle.settingsEvaluated {
-        logger.warn('*************** Remote Build Cache Disabled due to Reproducible Build ********************')
-        logger.warn("Build date will be set to (SOURCE_DATE_EPOCH=${System.getenv("SOURCE_DATE_EPOCH")})")
-    }
-}
 
 develocity {
     server = 'https://develocity.apache.org'
     buildScan {
         tag('grails')
-        tag('grails-core')
+        tag('grails-micronaut')
         publishing.onlyIf { it.authenticated }
         uploadInBackground = isLocal
     }
@@ -71,637 +64,33 @@ buildCache {
     }
 }
 
-rootProject.name = 'grails.core.ROOT'
-
-// Grails-Micronaut "island" toggle.
-//
-// The island is excluded from the build graph entirely when skipped:
-//   * grails-micronaut (Grails plugin that re-exports the Micronaut platform)
-//   * grails-micronaut-bom (overrides Groovy/Spock to Groovy 5 / Spock 2.4-groovy-5.0)
-//   * the grails-test-examples that consume grails-micronaut-bom
-//
-// The island builds against the Micronaut 5 platform, whose GA artifacts target JVM 25
-// bytecode and declare org.gradle.jvm.version=25. A build JDK older than 25 cannot resolve
-// or compile them, so by default the island is auto-excluded on a sub-25 JDK and auto-included
-// on JDK 25+. This lets a plain `./gradlew build` work on the Grails 8 baseline (JDK 21) and
-// transparently pick up the island when run on JDK 25+.
-//
-// Two presence-based overrides (matching project convention: skipFunctionalTests, skipCodeStyle):
-//   -PskipMicronautProjects    force-exclude the island on ANY JDK. Used by
-//                              groovy-snapshot-canary.yml, where the island's Groovy 5 /
-//                              Spock 2.4-groovy-5.0 pin clashes with the Groovy 4.x snapshot
-//                              that build swaps in - a reason independent of the JDK (#15613).
-//   -PincludeMicronautProjects force-include the island on a sub-25 JDK. Escape hatch for
-//                              making the :grails-micronaut tasks addressable on an older JDK
-//                              (e.g. to inspect the project graph). Note the island still
-//                              cannot compile the JVM-25 Micronaut platform on a sub-25 JDK.
-// -PskipMicronautProjects wins if both are present.
-//
-// Consumers that reference :grails-micronaut-bom (e.g. grails-doc:generateBomDocumentation)
-// must guard those references with findProject(':grails-micronaut-bom') != null.
-// See https://github.com/apache/grails-core/issues/15613.
-def explicitlySkipMicronaut = providers.gradleProperty('skipMicronautProjects').isPresent()
-def explicitlyIncludeMicronaut = providers.gradleProperty('includeMicronautProjects').isPresent()
-def buildJdkSupportsMicronaut = Runtime.version().feature() >= 25
-def skipMicronautProjects = explicitlySkipMicronaut || (!buildJdkSupportsMicronaut && !explicitlyIncludeMicronaut)
+rootProject.name = 'grails-micronaut'
 
 include(
-        'grails-benchmarks',
-        'grails-bootstrap',
-        'grails-beans-dsl',
-        'grails-cache',
-        'grails-codecs-core',
-        'grails-codecs',
-        'grails-common',
-        'grails-console',
-        'grails-controllers',
-        'grails-converters',
-        'grails-core',
-        'grails-core-cli-legacy',
-        'grails-databinding-core',
-        'grails-databinding',
-        'grails-datasource',
-        'grails-domain-class',
-        'grails-encoder',
-        'grails-fields',
-        'grails-geb',
-        'grails-i18n',
-        'grails-interceptors',
-        'grails-logging',
-        'grails-mimetypes',
-        'grails-rest-transforms',
-        'grails-scaffolding',
-        'grails-services',
-        'grails-shell-cli',
-        'grails-spring',
-        'grails-test-core',
-        'grails-undertow',
-        'grails-undertow-spring-boot',
-        'grails-url-mappings',
-        'grails-validation',
-        'grails-views-core',
-        'grails-views-gson',
-        'grails-views-markup',
-        'grails-web-core',
-        'grails-web-common',
-        'grails-web-boot',
-        'grails-web-databinding',
-        'grails-web-mvc',
-        'grails-web-url-mappings',
-
-        // POM / BOMs
-        'grails-dependencies-starter-web',
-        'grails-dependencies-test',
-        'grails-dependencies-assets',
-        'grails-base-bom',
-        'grails-bom', // the default bom
-        'grails-hibernate5-bom',
-        'grails-hibernate7-bom',
-        'grails-neo4j-bom',
-
-        // Docs
-        'grails-doc',
-
-        // Test Suite
-        'grails-test-suite-base',
-        'grails-test-suite-persistence',
-        'grails-test-suite-uber',
-        'grails-test-suite-web',
-
-        // events
-        'grails-events-core',
-        'grails-events-transforms',
-        'grails-events-gpars',
-        'grails-events-spring',
-        'grails-events-rxjava',
-        'grails-events-rxjava2',
-        'grails-events-rxjava3',
-        'grails-events',
-
-        // async
-        'grails-async-core',
-        'grails-async-gpars',
-        'grails-async-rxjava',
-        'grails-async-rxjava2',
-        'grails-async-rxjava3',
-        'grails-async',
-
-        // gsp
-        'grails-gsp-core',
-        'grails-gsp',
-        'grails-sitemesh3',
-        'grails-layout',
-        'grails-taglib',
-        'grails-web-gsp',
-        'grails-web-gsp-taglib',
-        'grails-web-jsp',
-        'grails-web-taglib',
-        'grails-gsp-spring-boot',
-
-        'grails-datastore-core',
-        'grails-datastore-web',
-
-        // Core GORM Implementation projects
-        'grails-datamapping-core',
-        'grails-datastore-async',
-        'grails-datamapping-async',
-        'grails-datamapping-validation',
-        'grails-datamapping-support',
-        'grails-datamapping-tck',
-        'grails-datamapping-core-test',
-
-        // RX projects
-        // until this can be finished being ported to the current Grails release, we are disabling
-        //'grails-datamapping-rx',
-
-        // Spring Security
-        // Note: Spring Security documentation is now part of grails-doc (grails-doc/src/en/guide/security).
-        'grails-spring-security-acl',
-        'grails-spring-security-cas',
-        'grails-spring-security',
-        'grails-spring-security-compat',
-        'grails-spring-security-ldap',
-        'grails-spring-security-oauth2',
-        'grails-spring-security-rest',
-        'grails-spring-security-rest-gorm',
-        'grails-spring-security-rest-grailscache',
-        'grails-spring-security-rest-memcached',
-        'grails-spring-security-rest-redis',
-        'grails-spring-security-rest-testapp-profile',
-        'grails-spring-security-ui',
-
-        // Mail
-        'grails-mail',
-
-        // Quartz
-        'grails-quartz',
-
-        // Redis
-        'grails-redis',
-
-        // Testing Support
-        'grails-testing-support-core',
-        'grails-testing-support-datamapping',
-        'grails-testing-support-dbcleanup-core',
-        'grails-testing-support-dbcleanup-h2',
-        'grails-testing-support-dbcleanup-postgresql',
-        'grails-testing-support-http-client',
-        'grails-testing-support-latency',
-        'grails-testing-support-mongodb',
-        'grails-testing-support-redis',
-        'grails-testing-support-views-gson',
-        'grails-testing-support-web',
-
-        // Test Report
-        'grails-test-report',
-
-        // wrapper
-        'grails-wrapper',
+        'grails-micronaut-bom',
+        'grails-hibernate5-micronaut-bom',
+        'grails-hibernate7-micronaut-bom',
+        'grails-micronaut',
+        'grails-test-examples-issue-11767',
+        'grails-test-examples-micronaut',
+        'grails-test-examples-micronaut-groovy-only',
+        'grails-test-examples-micronaut-hibernate5',
+        'grails-test-examples-micronaut-hibernate7',
+        'grails-test-examples-plugins-issue-11767',
+        'grails-test-examples-plugins-micronaut-singleton',
 )
 
-project(':grails-bom').projectDir = file('grails-bom/default')
-project(':grails-base-bom').projectDir = file('grails-bom/base')
-project(':grails-hibernate5-bom').projectDir = file('grails-bom/hibernate5')
-project(':grails-hibernate7-bom').projectDir = file('grails-bom/hibernate7')
-project(':grails-neo4j-bom').projectDir = file('grails-bom/neo4j')
+project(':grails-micronaut-bom').projectDir = file('grails-bom/micronaut')
+project(':grails-hibernate5-micronaut-bom').projectDir = file('grails-bom/hibernate5-micronaut')
+project(':grails-hibernate7-micronaut-bom').projectDir = file('grails-bom/hibernate7-micronaut')
+project(':grails-test-examples-issue-11767').projectDir = file('grails-test-examples/issue-11767')
+project(':grails-test-examples-micronaut').projectDir = file('grails-test-examples/micronaut')
+project(':grails-test-examples-micronaut-groovy-only').projectDir = file('grails-test-examples/micronaut-groovy-only')
+project(':grails-test-examples-micronaut-hibernate5').projectDir = file('grails-test-examples/micronaut-hibernate5')
+project(':grails-test-examples-micronaut-hibernate7').projectDir = file('grails-test-examples/micronaut-hibernate7')
+project(':grails-test-examples-plugins-issue-11767').projectDir = file('grails-test-examples/plugins/issue-11767')
+project(':grails-test-examples-plugins-micronaut-singleton').projectDir = file('grails-test-examples/plugins/micronaut-singleton')
 
-// Instead of using : to separate nested projects, fix the project directories by setting the projectDir explicitly
-// (Preserve the parent directory name as part of the nested project name)
-project(':grails-events-core').projectDir = file('grails-events/core')
-project(':grails-events-transforms').projectDir = file('grails-events/transforms')
-project(':grails-events-gpars').projectDir = file('grails-events/gpars')
-project(':grails-events-spring').projectDir = file('grails-events/spring')
-project(':grails-events-rxjava').projectDir = file('grails-events/rxjava')
-project(':grails-events-rxjava2').projectDir = file('grails-events/rxjava2')
-project(':grails-events-rxjava3').projectDir = file('grails-events/rxjava3')
-project(':grails-events').projectDir = file('grails-events/plugin')
-
-project(':grails-async-core').projectDir = file('grails-async/core')
-project(':grails-async-gpars').projectDir = file('grails-async/gpars')
-project(':grails-async-rxjava').projectDir = file('grails-async/rxjava')
-project(':grails-async-rxjava2').projectDir = file('grails-async/rxjava2')
-project(':grails-async-rxjava3').projectDir = file('grails-async/rxjava3')
-project(':grails-async').projectDir = file('grails-async/plugin')
-
-project(':grails-dependencies-starter-web').projectDir = file('grails-dependencies/starter-web')
-project(':grails-dependencies-test').projectDir = file('grails-dependencies/test')
-project(':grails-dependencies-assets').projectDir = file('grails-dependencies/assets')
-
-project(':grails-gsp-core').projectDir = file('grails-gsp/core')
-project(':grails-gsp').projectDir = file('grails-gsp/plugin')
-project(':grails-sitemesh3').projectDir = file('grails-gsp/grails-sitemesh3')
-project(':grails-layout').projectDir = file('grails-gsp/grails-layout')
-project(':grails-taglib').projectDir = file('grails-gsp/grails-taglib')
-project(':grails-web-gsp').projectDir = file('grails-gsp/grails-web-gsp')
-project(':grails-web-gsp-taglib').projectDir = file('grails-gsp/grails-web-gsp-taglib')
-project(':grails-web-jsp').projectDir = file('grails-gsp/grails-web-jsp')
-project(':grails-web-taglib').projectDir = file('grails-gsp/grails-web-taglib')
-project(':grails-gsp-spring-boot').projectDir = file('grails-gsp/spring-boot')
-
-project(':grails-undertow-spring-boot').projectDir = file('grails-undertow/spring-boot')
-project(':grails-undertow').projectDir = file('grails-undertow/plugin')
-
-// Data Mapping - Documentation
-include 'grails-data-docs-guide-developer'
-project(':grails-data-docs-guide-developer').projectDir = file('grails-data-docs/guide-developer')
-// until this can be finished being ported to the current Grails release, we are disabling
-// include 'grails-data-docs-guide-rx'
-// project(':grails-data-docs-guide-rx').projectDir = file('docs/guide-rx')
-include 'grails-data-docs-guide-whats-new'
-project(':grails-data-docs-guide-whats-new').projectDir = file('grails-data-docs/guide-whats-new')
-include 'grails-data-docs-stage'
-project(':grails-data-docs-stage').projectDir = file('grails-data-docs/stage')
-
-// Data Mapping - Simple (for simple gorm usage, unit tests, and base implementation testing)
-include 'grails-data-simple'
-findProject(':grails-data-simple').projectDir = file('grails-data-simple')
-
-// Data Mapping - Hibernate 7
-// Core
-include 'grails-data-hibernate7-core'
-findProject(':grails-data-hibernate7-core').projectDir = file('grails-data-hibernate7/core')
-
-include 'grails-data-hibernate7-spring-orm'
-findProject(':grails-data-hibernate7-spring-orm').projectDir = new File(settingsDir, 'grails-data-hibernate7/spring-orm')
-
-// Documentation
-include 'grails-data-hibernate7-docs'
-findProject(':grails-data-hibernate7-docs').projectDir = new File(settingsDir, 'grails-data-hibernate7/docs')
-
-//// Plugins
-include ':grails-data-hibernate7'
-findProject(':grails-data-hibernate7').projectDir = new File(settingsDir, 'grails-data-hibernate7/grails-plugin')
-
-include 'grails-data-hibernate7-dbmigration-core'
-findProject(':grails-data-hibernate7-dbmigration-core').projectDir = new File(settingsDir, 'grails-data-hibernate7/dbmigration-core')
-
-include 'grails-data-hibernate7-dbmigration'
-findProject(':grails-data-hibernate7-dbmigration').projectDir = new File(settingsDir, 'grails-data-hibernate7/dbmigration')
-
-include 'grails-data-hibernate7-spring-boot'
-findProject(':grails-data-hibernate7-spring-boot').projectDir = new File(settingsDir, 'grails-data-hibernate7/boot-plugin')
-
-// Data Mapping - Hibernate 5
-// Core
-include 'grails-data-hibernate5-core'
-findProject(':grails-data-hibernate5-core').projectDir = file('grails-data-hibernate5/core')
-
-include 'grails-data-hibernate5-spring-orm'
-findProject(':grails-data-hibernate5-spring-orm').projectDir = new File(settingsDir, 'grails-data-hibernate5/spring-orm')
-
-// Documentation
-include 'grails-data-hibernate5-docs'
-findProject(':grails-data-hibernate5-docs').projectDir = new File(settingsDir, 'grails-data-hibernate5/docs')
-
-// Plugins
-include ':grails-data-hibernate5'
-findProject(':grails-data-hibernate5').projectDir = new File(settingsDir, 'grails-data-hibernate5/grails-plugin')
-
-include 'grails-data-hibernate5-dbmigration'
-findProject(':grails-data-hibernate5-dbmigration').projectDir = new File(settingsDir, 'grails-data-hibernate5/dbmigration')
-
-include 'grails-data-hibernate5-spring-boot'
-findProject(':grails-data-hibernate5-spring-boot').projectDir = new File(settingsDir, 'grails-data-hibernate5/boot-plugin')
-
-// functional tests - Hibernate5 examples
-file('grails-test-examples/hibernate5').listFiles({ it.directory } as FileFilter).each {
-    def projectName = "grails-test-examples-hibernate5-${it.name}"
-    include(projectName)
-    project(":${projectName}").projectDir = it
-}
-
-// functional tests - Hibernate7 examples
-file('grails-test-examples/hibernate7').listFiles({ it.directory } as FileFilter).each {
-    def projectName = "grails-test-examples-hibernate7-${it.name}"
-    include(projectName)
-    project(":${projectName}").projectDir = it
-}
-
-// Mongodb
-// core
-include 'grails-data-mongodb-core'
-project(':grails-data-mongodb-core').projectDir = new File(settingsDir, 'grails-data-mongodb/core')
-
-include 'grails-data-mongodb-bson'
-project(':grails-data-mongodb-bson').projectDir = new File(settingsDir, 'grails-data-mongodb/bson')
-
-include 'grails-data-mongodb-ext'
-project(':grails-data-mongodb-ext').projectDir = new File(settingsDir, 'grails-data-mongodb/ext')
-
-// documentation
-include 'grails-data-mongodb-docs'
-project(':grails-data-mongodb-docs').projectDir = new File(settingsDir, 'grails-data-mongodb/docs')
-
-// plugins
-include 'grails-data-mongodb-spring-boot'
-project(':grails-data-mongodb-spring-boot').projectDir = new File(settingsDir, 'grails-data-mongodb/boot-plugin')
-
-include 'grails-data-mongodb-spring-data'
-project(':grails-data-mongodb-spring-data').projectDir = new File(settingsDir, 'grails-data-mongodb/spring-data')
-
-include 'grails-data-mongodb-embedded'
-project(':grails-data-mongodb-embedded').projectDir = new File(settingsDir, 'grails-data-mongodb/embedded')
-
-include 'grails-data-mongodb'
-project(':grails-data-mongodb').projectDir = new File(settingsDir, 'grails-data-mongodb/grails-plugin')
-
-include 'grails-data-mongodb-gson-templates'
-project(':grails-data-mongodb-gson-templates').projectDir = new File(settingsDir, 'grails-data-mongodb/gson-templates')
-
-// Neo4j
-// core
-include 'grails-data-neo4j-core'
-project(':grails-data-neo4j-core').projectDir = new File(settingsDir, 'grails-data-neo4j/core')
-
-// documentation
-include 'grails-data-neo4j-docs'
-project(':grails-data-neo4j-docs').projectDir = new File(settingsDir, 'grails-data-neo4j/docs')
-
-// boot plugin
-include 'grails-data-neo4j-spring-boot'
-project(':grails-data-neo4j-spring-boot').projectDir = new File(settingsDir, 'grails-data-neo4j/boot-plugin')
-
-// plugin
-include 'grails-data-neo4j'
-project(':grails-data-neo4j').projectDir = new File(settingsDir, 'grails-data-neo4j/grails-plugin')
-
-// GraphQL
-// core
-include 'grails-data-graphql-core'
-project(':grails-data-graphql-core').projectDir = new File(settingsDir, 'grails-data-graphql/core')
-
-// documentation
-include 'grails-data-graphql-docs'
-project(':grails-data-graphql-docs').projectDir = new File(settingsDir, 'grails-data-graphql/docs')
-
-// plugins
-include 'grails-data-graphql'
-project(':grails-data-graphql').projectDir = new File(settingsDir, 'grails-data-graphql/plugin')
-
-// functional tests - mongodb examples
-include 'grails-test-examples-mongodb-base'
-project(':grails-test-examples-mongodb-base').projectDir = new File(settingsDir, 'grails-test-examples/mongodb/base')
-
-include 'grails-test-examples-mongodb-database-per-tenant'
-project(':grails-test-examples-mongodb-database-per-tenant').projectDir = new File(settingsDir, 'grails-test-examples/mongodb/database-per-tenant')
-
-include 'grails-test-examples-mongodb-hibernate5'
-project(':grails-test-examples-mongodb-hibernate5').projectDir = new File(settingsDir, 'grails-test-examples/mongodb/hibernate5')
-
-include 'grails-test-examples-mongodb-springboot'
-project(':grails-test-examples-mongodb-springboot').projectDir = new File(settingsDir, 'grails-test-examples/mongodb/springboot')
-
-include 'grails-test-examples-mongodb-test-data-service'
-project(':grails-test-examples-mongodb-test-data-service').projectDir = new File(settingsDir, 'grails-test-examples/mongodb/test-data-service')
-
-include 'grails-test-examples-mongodb-gson-templates'
-project(':grails-test-examples-mongodb-gson-templates').projectDir = new File(settingsDir, 'grails-test-examples/mongodb/gson-templates')
-
-// functional tests - neo4j examples
-include 'grails-test-examples-neo4j-base'
-project(':grails-test-examples-neo4j-base').projectDir = new File(settingsDir, 'grails-test-examples/neo4j/base')
-
-include 'grails-test-examples-neo4j-hibernate5'
-project(':grails-test-examples-neo4j-hibernate5').projectDir = new File(settingsDir, 'grails-test-examples/neo4j/hibernate5')
-
-include 'grails-test-examples-neo4j-spring-boot'
-project(':grails-test-examples-neo4j-spring-boot').projectDir = new File(settingsDir, 'grails-test-examples/neo4j/spring-boot')
-
-include 'grails-test-examples-neo4j-standalone'
-project(':grails-test-examples-neo4j-standalone').projectDir = new File(settingsDir, 'grails-test-examples/neo4j/neo4j-standalone')
-
-include 'grails-test-examples-neo4j-test-data-service'
-project(':grails-test-examples-neo4j-test-data-service').projectDir = new File(settingsDir, 'grails-test-examples/neo4j/test-data-service')
-
-// functional tests - graphql examples
-include 'grails-test-examples-graphql-grails-test-app'
-project(':grails-test-examples-graphql-grails-test-app').projectDir = new File(settingsDir, 'grails-test-examples/graphql/grails-test-app')
-
-include 'grails-test-examples-graphql-grails-docs-app'
-project(':grails-test-examples-graphql-grails-docs-app').projectDir = new File(settingsDir, 'grails-test-examples/graphql/grails-docs-app')
-
-include 'grails-test-examples-graphql-grails-tenant-app'
-project(':grails-test-examples-graphql-grails-tenant-app').projectDir = new File(settingsDir, 'grails-test-examples/graphql/grails-tenant-app')
-
-include 'grails-test-examples-graphql-grails-multi-datastore-app'
-project(':grails-test-examples-graphql-grails-multi-datastore-app').projectDir = new File(settingsDir, 'grails-test-examples/graphql/grails-multi-datastore-app')
-
-include 'grails-test-examples-graphql-spring-boot-app'
-project(':grails-test-examples-graphql-spring-boot-app').projectDir = new File(settingsDir, 'grails-test-examples/graphql/spring-boot-app')
-
-// profiles
-include 'grails-profiles-base'
-project(':grails-profiles-base').projectDir = file('grails-profiles/base')
-
-include 'grails-profiles-profile'
-project(':grails-profiles-profile').projectDir = file('grails-profiles/profile')
-
-include 'grails-profiles-plugin'
-project(':grails-profiles-plugin').projectDir = file('grails-profiles/plugin')
-
-include 'grails-profiles-rest-api'
-project(':grails-profiles-rest-api').projectDir = file('grails-profiles/rest-api')
-
-include 'grails-profiles-rest-api-plugin'
-project(':grails-profiles-rest-api-plugin').projectDir = file('grails-profiles/rest-api-plugin')
-
-include 'grails-profiles-web'
-project(':grails-profiles-web').projectDir = file('grails-profiles/web')
-
-include 'grails-profiles-web-plugin'
-project(':grails-profiles-web-plugin').projectDir = file('grails-profiles/web-plugin')
-
-// Spring Security
-project(':grails-spring-security-acl').projectDir = new File(settingsDir, 'grails-spring-security/acl/plugin')
-project(':grails-spring-security-cas').projectDir = new File(settingsDir, 'grails-spring-security/cas/plugin')
-project(':grails-spring-security').projectDir = new File(settingsDir, 'grails-spring-security/plugin')
-project(':grails-spring-security-compat').projectDir = new File(settingsDir, 'grails-spring-security/compat')
-project(':grails-spring-security-ldap').projectDir = new File(settingsDir, 'grails-spring-security/ldap/plugin')
-project(':grails-spring-security-oauth2').projectDir = new File(settingsDir, 'grails-spring-security/oauth2/plugin')
-project(':grails-spring-security-rest').projectDir = new File(settingsDir, 'grails-spring-security/rest/core')
-project(':grails-spring-security-rest-gorm').projectDir = new File(settingsDir, 'grails-spring-security/rest/gorm')
-project(':grails-spring-security-rest-grailscache').projectDir = new File(settingsDir, 'grails-spring-security/rest/grailscache')
-project(':grails-spring-security-rest-memcached').projectDir = new File(settingsDir, 'grails-spring-security/rest/memcached')
-project(':grails-spring-security-rest-redis').projectDir = new File(settingsDir, 'grails-spring-security/rest/redis')
-project(':grails-spring-security-rest-testapp-profile').projectDir = new File(settingsDir, 'grails-spring-security/rest/testapp-profile')
-project(':grails-spring-security-ui').projectDir = new File(settingsDir, 'grails-spring-security/ui/plugin')
-
-// Spring Security Functional Tests
-include(
-        'grails-test-examples-spring-security-acl-functional-test-app',
-        'grails-test-examples-spring-security-acl-integration-test-app',
-        'grails-test-examples-spring-security-cas-test1',
-        'grails-test-examples-spring-security-core-functional-test-app',
-        'grails-test-examples-spring-security-core-integration-test-app',
-        'grails-test-examples-spring-security-core-misc-functional-test-app-group',
-        'grails-test-examples-spring-security-core-misc-functional-test-app-roles',
-        'grails-test-examples-spring-security-ldap-custom-user-details-context-mapper',
-        'grails-test-examples-spring-security-ldap-functional-test-app',
-        'grails-test-examples-spring-security-ldap-retrieve-db-roles',
-        'grails-test-examples-spring-security-ldap-retrieve-group-roles',
-        'grails-test-examples-spring-security-ui-common',
-        'grails-test-examples-spring-security-ui-extended',
-        'grails-test-examples-spring-security-ui-simple',
-)
-project(':grails-test-examples-spring-security-acl-functional-test-app').projectDir = new File(settingsDir, 'grails-test-examples/spring-security/acl/functional-test-app')
-project(':grails-test-examples-spring-security-acl-integration-test-app').projectDir = new File(settingsDir, 'grails-test-examples/spring-security/acl/integration-test-app')
-project(':grails-test-examples-spring-security-cas-test1').projectDir = new File(settingsDir, 'grails-test-examples/spring-security/cas/test1')
-project(':grails-test-examples-spring-security-core-functional-test-app').projectDir = new File(settingsDir, 'grails-test-examples/spring-security/core/functional-test-app')
-project(':grails-test-examples-spring-security-core-integration-test-app').projectDir = new File(settingsDir, 'grails-test-examples/spring-security/core/integration-test-app')
-project(':grails-test-examples-spring-security-core-misc-functional-test-app-group').projectDir = new File(settingsDir, 'grails-test-examples/spring-security/core/misc-functional-test-app/group')
-project(':grails-test-examples-spring-security-core-misc-functional-test-app-roles').projectDir = new File(settingsDir, 'grails-test-examples/spring-security/core/misc-functional-test-app/roles')
-project(':grails-test-examples-spring-security-ldap-custom-user-details-context-mapper').projectDir = new File(settingsDir, 'grails-test-examples/spring-security/ldap/custom-user-details-context-mapper')
-project(':grails-test-examples-spring-security-ldap-functional-test-app').projectDir = new File(settingsDir, 'grails-test-examples/spring-security/ldap/functional-test-app')
-project(':grails-test-examples-spring-security-ldap-retrieve-db-roles').projectDir = new File(settingsDir, 'grails-test-examples/spring-security/ldap/retrieve-db-roles')
-project(':grails-test-examples-spring-security-ldap-retrieve-group-roles').projectDir = new File(settingsDir, 'grails-test-examples/spring-security/ldap/retrieve-group-roles')
-project(':grails-test-examples-spring-security-ui-common').projectDir = new File(settingsDir, 'grails-test-examples/spring-security/ui/common')
-project(':grails-test-examples-spring-security-ui-extended').projectDir = new File(settingsDir, 'grails-test-examples/spring-security/ui/extended')
-project(':grails-test-examples-spring-security-ui-simple').projectDir = new File(settingsDir, 'grails-test-examples/spring-security/ui/simple')
-
-// Mail Functional Tests
-include 'grails-test-examples-mail'
-project(':grails-test-examples-mail').projectDir = new File(settingsDir, 'grails-test-examples/mail')
-
-// Redis Functional Tests
-include 'grails-test-examples-redis'
-project(':grails-test-examples-redis').projectDir = new File(settingsDir, 'grails-test-examples/redis')
-
-// Functional Tests
-include(
-        'grails-test-examples-aot',
-        'grails-test-examples-app1',
-        'grails-test-examples-app2',
-        'grails-test-examples-app3',
-        'grails-test-examples-app4',
-        'grails-test-examples-app5',
-        'grails-test-examples-async-events-pubsub-demo',
-        'grails-test-examples-beans-dsl',
-        'grails-test-examples-beans-dsl-plugin',
-        'grails-test-examples-cache',
-        'grails-test-examples-database-cleanup',
-        'grails-test-examples-gsp-compile-static',
-        'grails-test-examples-datasources',
-        'grails-test-examples-demo33',
-        'grails-test-examples-enable-mvc-check',
-        'grails-test-examples-exploded',
-        'grails-test-examples-external-configuration',
-        'grails-test-examples-geb',
-        'grails-test-examples-geb-context-path',
-        'grails-test-examples-geb-gebconfig',
-        'grails-test-examples-gorm',
-        'grails-test-examples-gsp-layout',
-        'grails-test-examples-gsp-sitemesh3',
-        'grails-test-examples-gsp-spring-boot',
-        'grails-test-examples-hyphenated',
-        'grails-test-examples-issue-11102',
-        'grails-test-examples-issue-15228',
-        'grails-test-examples-issue-10279',
-        'grails-test-examples-issue-698-domain-save-npe',
-        'grails-test-examples-issue-views-182',
-        'grails-test-examples-jetty',
-        'grails-test-examples-latency',
-        'grails-test-examples-namespaces',
-        'grails-test-examples-plugins-exploded',
-        'grails-test-examples-plugins-issue11005',
-        'grails-test-examples-plugins-loadafter',
-        'grails-test-examples-plugins-loadfirst',
-        'grails-test-examples-plugins-loadsecond',
-        'grails-test-examples-config-report',
-        'grails-test-examples-quartz',
-        'grails-test-examples-scaffolding',
-        'grails-test-examples-scaffolding-fields',
-        'grails-test-examples-test-phases',
-        'grails-test-examples-undertow',
-        'grails-test-examples-views-functional-tests',
-        'grails-test-examples-views-functional-tests-plugin',
-)
-project(':grails-test-examples-async-events-pubsub-demo').projectDir = file('grails-test-examples/async-events-pubsub-demo')
-project(':grails-test-examples-beans-dsl').projectDir = file('grails-test-examples/beans-dsl')
-project(':grails-test-examples-beans-dsl-plugin').projectDir = file('grails-test-examples/beans-dsl-plugin')
-project(':grails-test-examples-aot').projectDir = file('grails-test-examples/aot')
-project(':grails-test-examples-app1').projectDir = file('grails-test-examples/app1')
-project(':grails-test-examples-app2').projectDir = file('grails-test-examples/app2')
-project(':grails-test-examples-app3').projectDir = file('grails-test-examples/app3')
-project(':grails-test-examples-app4').projectDir = file('grails-test-examples/app4')
-project(':grails-test-examples-app5').projectDir = file('grails-test-examples/app5')
-project(':grails-test-examples-external-configuration').projectDir = file('grails-test-examples/external-configuration')
-project(':grails-test-examples-exploded').projectDir = file('grails-test-examples/exploded')
-project(':grails-test-examples-datasources').projectDir = file('grails-test-examples/datasources')
-project(':grails-test-examples-database-cleanup').projectDir = file('grails-test-examples/database-cleanup')
-project(':grails-test-examples-gsp-compile-static').projectDir = file('grails-test-examples/gsp-compile-static')
-project(':grails-test-examples-quartz').projectDir = file('grails-test-examples/quartz')
-project(':grails-test-examples-geb').projectDir = file('grails-test-examples/geb')
-project(':grails-test-examples-geb-context-path').projectDir = file('grails-test-examples/geb-context-path')
-project(':grails-test-examples-geb-gebconfig').projectDir = file('grails-test-examples/geb-gebconfig')
-project(':grails-test-examples-namespaces').projectDir = file('grails-test-examples/namespaces')
-project(':grails-test-examples-gorm').projectDir = file('grails-test-examples/gorm')
-project(':grails-test-examples-gsp-layout').projectDir = file('grails-test-examples/gsp-layout')
-project(':grails-test-examples-gsp-sitemesh3').projectDir = file('grails-test-examples/gsp-sitemesh3')
-project(':grails-test-examples-gsp-spring-boot').projectDir = file('grails-test-examples/gsp-spring-boot/app')
-project(':grails-test-examples-issue-698-domain-save-npe').projectDir = file('grails-test-examples/issue-698-domain-save-npe')
-project(':grails-test-examples-hyphenated').projectDir = file('grails-test-examples/hyphenated')
-project(':grails-test-examples-issue-views-182').projectDir = file('grails-test-examples/issue-views-182')
-project(':grails-test-examples-issue-11102').projectDir = file('grails-test-examples/issue-11102')
-project(':grails-test-examples-demo33').projectDir = file('grails-test-examples/demo33')
-project(':grails-test-examples-enable-mvc-check').projectDir = file('grails-test-examples/enable-mvc-check')
-project(':grails-test-examples-plugins-loadfirst').projectDir = file('grails-test-examples/plugins/loadfirst')
-project(':grails-test-examples-plugins-loadsecond').projectDir = file('grails-test-examples/plugins/loadsecond')
-project(':grails-test-examples-plugins-loadafter').projectDir = file('grails-test-examples/plugins/loadafter')
-project(':grails-test-examples-plugins-issue11005').projectDir = file('grails-test-examples/plugins/issue11005')
-project(':grails-test-examples-issue-15228').projectDir = file('grails-test-examples/issue-15228')
-project(':grails-test-examples-issue-10279').projectDir = file('grails-test-examples/issue-10279')
-project(':grails-test-examples-plugins-exploded').projectDir = file('grails-test-examples/plugins/exploded')
-project(':grails-test-examples-cache').projectDir = file('grails-test-examples/cache')
-project(':grails-test-examples-config-report').projectDir = file('grails-test-examples/config-report')
-project(':grails-test-examples-scaffolding').projectDir = file('grails-test-examples/scaffolding')
-project(':grails-test-examples-scaffolding-fields').projectDir = file('grails-test-examples/scaffolding-fields')
-project(':grails-test-examples-views-functional-tests').projectDir = file('grails-test-examples/views-functional-tests')
-project(':grails-test-examples-views-functional-tests-plugin').projectDir = file('grails-test-examples/views-functional-tests-plugin')
-project(':grails-test-examples-test-phases').projectDir = file('grails-test-examples/test-phases')
-project(':grails-test-examples-jetty').projectDir = file('grails-test-examples/jetty')
-project(':grails-test-examples-undertow').projectDir = file('grails-test-examples/undertow')
-project(':grails-test-examples-latency').projectDir = file('grails-test-examples/latency')
-
-includeBuild('./grails-gradle') {
-    name = 'grails-gradle'
-}
-includeBuild('./build-logic') {
-    name = 'build-logic-root'
-}
-
-// Grails-Micronaut "island" - kept on its own dependency graph because the Micronaut
-// platform pins Groovy 5 / Spock 2.4-groovy-5.0, which is incompatible with the
-// Groovy 4 / Spock 2.4-groovy-4.0 stack the rest of grails-core targets. Skipping
-// these projects (via -PskipMicronautProjects) keeps Micronaut's version overrides
-// from leaking into builds where Groovy 4 is in play (notably the joint validation
-// build that swaps in an apache/groovy 4.x snapshot).
-if (!skipMicronautProjects) {
-    include(
-            'grails-micronaut-bom',
-            'grails-hibernate5-micronaut-bom',
-            'grails-hibernate7-micronaut-bom',
-            'grails-micronaut',
-            'grails-test-examples-issue-11767',
-            'grails-test-examples-micronaut',
-            'grails-test-examples-micronaut-groovy-only',
-            'grails-test-examples-micronaut-hibernate5',
-            'grails-test-examples-micronaut-hibernate7',
-            'grails-test-examples-plugins-issue-11767',
-            'grails-test-examples-plugins-micronaut-singleton',
-    )
-    project(':grails-micronaut-bom').projectDir = file('grails-bom/micronaut')
-    project(':grails-hibernate5-micronaut-bom').projectDir = file('grails-bom/hibernate5-micronaut')
-    project(':grails-test-examples-micronaut-hibernate5').projectDir = file('grails-test-examples/micronaut-hibernate5')
-    project(':grails-hibernate7-micronaut-bom').projectDir = file('grails-bom/hibernate7-micronaut')
-    project(':grails-test-examples-micronaut-hibernate7').projectDir = file('grails-test-examples/micronaut-hibernate7')
-    project(':grails-test-examples-issue-11767').projectDir = file('grails-test-examples/issue-11767')
-    project(':grails-test-examples-micronaut').projectDir = file('grails-test-examples/micronaut')
-    project(':grails-test-examples-micronaut-groovy-only').projectDir = file('grails-test-examples/micronaut-groovy-only')
-    project(':grails-test-examples-plugins-issue-11767').projectDir = file('grails-test-examples/plugins/issue-11767')
-    project(':grails-test-examples-plugins-micronaut-singleton').projectDir = file('grails-test-examples/plugins/micronaut-singleton')
-}
-
-// Due to https://github.com/gradle/gradle/issues/2986 , we can't change the global exclude for profiles, it must be done everywhere
 for (String pattern in DirectoryScanner.defaultExcludes) {
     if (pattern.contains('gitignore') || pattern.contains('gitattributes')) {
         DirectoryScanner.removeDefaultExclude(pattern)

@@ -28,4 +28,4 @@ Please see the page of the [ASF Security Team](https://www.apache.org/security/)
 
 ## Threat Model
 
-The framework's threat model - what is in scope, what is out, what security properties are claimed, what is explicitly disclaimed, and how inbound reports and findings are triaged - is documented in [THREAT_MODEL.md](./THREAT_MODEL.md). Reporters and triagers should consult that document alongside this policy.
+This repository publishes the Grails Micronaut plugin and related BOMs. Vulnerability reports still go through the [ASF Security Team](https://www.apache.org/security/). The Grails framework threat model lives in [apache/grails-core](https://github.com/apache/grails-core/blob/8.0.x/THREAT_MODEL.md).

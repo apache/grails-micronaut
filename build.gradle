@@ -16,129 +16,18 @@
  */
 
 plugins {
-    id 'org.apache.grails.gradle.grails-violation-aggregation'
-    id 'org.apache.grails.gradle.grails-ij-formatter'
-    id 'org.apache.grails.gradle.grails-validate-actions'
-    id 'org.apache.grails.buildsrc.test-task-sharding'
+    id 'org.nosphere.apache.rat'
 }
-
-import java.time.Instant
-import java.time.LocalDate
-import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
-
-import javax.inject.Inject
-
-import org.apache.tools.ant.taskdefs.condition.Os
 
 ext {
-    isReproducibleBuild = System.getenv("SOURCE_DATE_EPOCH") != null
-    buildInstant = java.util.Optional.ofNullable(System.getenv("SOURCE_DATE_EPOCH"))
-            .filter(s -> !s.isEmpty())
-            .map(Long::parseLong)
-            .map(Instant::ofEpochSecond)
-            .orElseGet(Instant::now)
-    formattedBuildDate = System.getenv("SOURCE_DATE_EPOCH") ?
-            DateTimeFormatter.ISO_INSTANT.format(buildInstant) :
-            DateTimeFormatter.ISO_DATE.format(LocalDate.ofInstant(buildInstant as Instant, ZoneOffset.UTC))
-    buildDate = (buildInstant as Instant).atZone(ZoneOffset.UTC) // for reproducible builds
+    isReproducibleBuild = System.getenv('SOURCE_DATE_EPOCH') != null
     isCiBuild = System.getenv().get('CI') as Boolean
-    // Set DO_NOT_CACHE_TESTS=1 to force test tasks to re-run on every invocation without
-    // needing --rerun-tasks. Useful for repeatedly running the same test command while
-    // chasing flaky tests across runs.
     doNotCacheTests = System.getenv('DO_NOT_CACHE_TESTS')?.toBoolean()
-    // availableProcessors() reports LOGICAL processors: SMT threads on x64, and on Apple silicon
-    // every efficiency core as well as every performance core. Taking 3/4 of that therefore
-    // asked for more concurrent Grails/Spring test JVMs than the machine has real capacity for
-    // (each fork also holds a 1G heap, and the mongodb, redis and geb suites start a Docker
-    // container per fork). Half is the conservative fraction. CI keeps its existing budget, so
-    // this does not reduce CI fork counts - though CI forks do see fewer processors, below.
     configuredTestParallel = findProperty('maxTestParallel') as Integer ?:
             (isCiBuild ? 4 : Math.max(1, (Runtime.runtime.availableProcessors() / 2) as int))
-    excludeUnusedTransDeps = findProperty('excludeUnusedTransDeps')
-
-    testProjectsStartWith = [
-            'grails-test-suite',
-            'grails-test-examples'
-    ]
-    testProjects = [ /* Will be populated by subprojects loop below */]
-    docProjects = [ /* Will be populated by subprojects loop below */]
-    cliProjects = [ /* Will be populated by subprojects loop below */]
-    profileProjects = [ /* Will be populated by subprojects loop below */]
-}
-
-/**
- * Tells a forked test JVM how many processors it may size its GC and JIT thread pools from.
- *
- * Every forked JVM otherwise sizes those pools for the WHOLE machine, because no fork knows the
- * others exist. On a 20-processor host that is 15 ParallelGCThreads + 4 ConcGCThreads + 12
- * CICompilerCount = 31 threads per fork before a single test runs, so N concurrent forks become
- * N*31 threads competing for the same cores. Gradle cannot see this: it charges each fork one
- * worker lease, as though a fork were a single thread.
- *
- * The share is availableProcessors / maxWorkerCount, i.e. the BUILD-WIDE worker limit, because
- * that - not any one task's maxParallelForks - is what bounds how many forks can run at once.
- * With org.gradle.parallel=true, Test tasks from several projects execute concurrently, so a
- * per-task share would still oversubscribe the machine.
- *
- * Supplied as an argument provider rather than through jvmArgs because several modules assign
- * jvmArgs wholesale in their own build scripts, which would discard anything added here first.
- */
-final class ActiveProcessorCountArgumentProvider implements CommandLineArgumentProvider {
-
-    @Input
-    final int processorCount
-
-    ActiveProcessorCountArgumentProvider(int availableProcessorCount, int maxWorkerCount) {
-        // Floor of 2: at ActiveProcessorCount=1 HotSpot's ergonomics select Serial GC, which
-        // costs more on a 1G test heap than the contention it saves. Two keeps G1 with a
-        // bounded worker count.
-        //
-        // That floor also means -PmaxTestParallel=1 still advertises 2 processors to the
-        // single fork whenever maxWorkerCount is larger than availableProcessors/2 (the
-        // usual local case: org.gradle.parallel=true with no org.gradle.workers.max).
-        // It is not a "give the one fork the whole machine" switch.
-        this.processorCount = Math.max(2, (availableProcessorCount / Math.max(1, maxWorkerCount)) as int)
-    }
-
-    @Override
-    Iterable<String> asArguments() {
-        ["-XX:ActiveProcessorCount=$processorCount".toString()]
-    }
 }
 
 subprojects {
-
-    tasks.withType(Test).configureEach { testTask ->
-        testTask.jvmArgumentProviders.add(new ActiveProcessorCountArgumentProvider(
-                Runtime.runtime.availableProcessors(), gradle.startParameter.maxWorkerCount))
-    }
-
-    for (String testPrefix : testProjectsStartWith) {
-        if (name.startsWith(testPrefix)) {
-            rootProject.ext['testProjects'] << name
-        }
-    }
-
-    // Framework modules wire their cli tier with project dependencies; only the test-example
-    // apps exercise the external-coordinate auto-provisioning (resolved locally through the
-    // dependency substitution in gradle/functional-test-config.gradle) like real applications.
-    if (!name.startsWith('grails-test-examples')) {
-        ext.grailsCliAutoProvision = false
-    }
-
-    if (name.startsWith('grails-doc') || name.startsWith('grails-data-doc') || name.endsWith('-docs') || name.endsWith('-test-report')) {
-        rootProject.ext['docProjects'] << name
-    }
-
-    if (name.startsWith('grails-wrapper')) {
-        rootProject.ext['cliProjects'] << name
-    }
-
-    if (name.startsWith('grails-profiles')) {
-        rootProject.ext['profileProjects'] << name
-    }
-
     configurations.configureEach {
         resolutionStrategy {
             def cacheHours = isCiBuild || isReproducibleBuild ? 0 : 24
@@ -148,50 +37,7 @@ subprojects {
     }
 }
 
-interface ExecSupport {
-    @Inject ExecOperations getProcess()
-}
-tasks.register('publishAllToMavenLocal') {
-    description = 'Publishes grails-gradle, the root build, and grails-forge to the local Maven cache (in order).'
-    group = 'publishing'
-
-    def execSupport = objects.newInstance(ExecSupport)
-
-    doLast {
-        def projectRoot = layout.projectDirectory.asFile
-        def javaHome = System.getProperty('java.home')
-        def gradlew = Os.isFamily(Os.FAMILY_WINDOWS) ? 'gradlew.bat' : 'gradlew'
-
-        def runPublish = { File workingDir, String label ->
-            logger.lifecycle("--- Publishing ${label} to Maven Local ---")
-            execSupport.process.exec { ExecSpec exec ->
-                exec.environment('JAVA_HOME', javaHome)
-                exec.workingDir = workingDir
-                exec.commandLine = [new File(workingDir, gradlew).absolutePath, 'publishToMavenLocal']
-            }
-        }
-
-        // 1. Publish grails-gradle (provides Gradle plugins used by the main build)
-        runPublish(new File(projectRoot, 'grails-gradle'), 'grails-gradle')
-        // 2. Publish the root (main) build
-        runPublish(projectRoot, 'root build')
-        // 3. Publish grails-forge
-        runPublish(new File(projectRoot, 'grails-forge'), 'grails-forge')
-    }
-}
-
 apply {
     from layout.projectDirectory.file('gradle/publish-root-config.gradle')
     from layout.projectDirectory.file('gradle/rat-root-config.gradle')
 }
-
-// For debugging the gradle task graph: Uncomment to show task dependencies when a task is run
-//gradle.taskGraph.whenReady {taskGraph ->
-//    logger.lifecycle("Found ${taskGraph.allTasks.size()} tasks.")
-//    taskGraph.allTasks.forEach { task ->
-//        logger.lifecycle("${task}")
-//        task.dependsOn.forEach { dep ->
-//            logger.lifecycle("\t- ${dep}")
-//        }
-//    }
-//}

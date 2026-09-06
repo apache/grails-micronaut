@@ -1,3 +1,0 @@
-plugins {
-    id 'org.apache.grails.gradle.grails-plugin'
-}

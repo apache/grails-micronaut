@@ -210,10 +210,10 @@ class PublishPlugin implements Plugin<Project> {
     private static void configureGrailsPublish(Project project) {
         project.extensions.configure(GrailsPublishExtension) {
             it.artifactId.set(project.provider { lookupProperty(project, 'pomArtifactId', project.name) })
-            it.githubSlug.set(project.provider { lookupProperty(project, 'githubSlug', 'apache/grails-core')})
+            it.githubSlug.set(project.provider { lookupProperty(project, 'githubSlug', 'apache/grails-micronaut')})
             it.license.name = 'Apache-2.0'
-            it.title.set(project.provider { lookupProperty(project, 'pomTitle', project.rootProject.name == 'grails-forge' ? 'Apache Grails® Application Forge' : 'Apache Grails® framework')})
-            it.desc.set(project.provider { lookupProperty(project, 'pomDescription', project.rootProject.name == 'grails-forge' ? 'Generates Apache Grails® applications' : 'Apache Grails® Web Application Framework')})
+            it.title.set(project.provider { lookupProperty(project, 'pomTitle', 'Apache Grails® Micronaut')})
+            it.desc.set(project.provider { lookupProperty(project, 'pomDescription', 'Micronaut integration for Apache Grails®')})
             it.organization {
                 it.name.set('Apache Software Foundation')
                 it.url.set('https://apache.org/')
@@ -398,8 +398,8 @@ class PublishPlugin implements Plugin<Project> {
 
             SourceSetContainer sourceSets = project.extensions.getByType(SourceSetContainer)
             project.tasks.withType(Jar).configureEach { Jar jar ->
-                def fallbackLicense = findRootGrailsCoreDir(project).file('licenses/LICENSE-Apache-2.0.txt')
-                def fallbackNotice = findRootGrailsCoreDir(project).file('grails-core/src/main/resources/META-INF/NOTICE')
+                def fallbackLicense = findRootGrailsCoreDir(project).file('LICENSE')
+                def fallbackNotice = findRootGrailsCoreDir(project).file('NOTICE')
 
                 Provider<Boolean> isNotJavadocJar = jar.archiveClassifier.map { it != 'javadoc' }.orElse(true)
 
@@ -460,8 +460,6 @@ class PublishPlugin implements Plugin<Project> {
         //TODO: This needs changed so any past contributor is listed as a developer per ASF policy
         if (project.name == 'grails-gradle') {
             return [graemerocher: 'Graeme Rocher', jeffscottbrown: 'Jeff Scott Brown', puneetbehl: 'Puneet Behl']
-        } else if (project.name == 'grails-forge') {
-            return [puneetbehl: 'Puneet Behl']
         }
 
         [graemerocher: 'Graeme Rocher']

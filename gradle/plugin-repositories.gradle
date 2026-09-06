@@ -26,6 +26,7 @@ ext.configurePluginRepositories = { RepositoryHandler repositories ->
     repositories.maven {
         url = uri('https://repository.apache.org/content/groups/snapshots')
         content {
+            includeGroup('org.apache.grails')
             includeGroup('org.apache.grails.gradle')
         }
         mavenContent {

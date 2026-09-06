@@ -1,173 +1,39 @@
 /*
- *  Licensed to the Apache Software Foundation (ASF) under one
- *  or more contributor license agreements.  See the NOTICE file
- *  distributed with this work for additional information
- *  regarding copyright ownership.  The ASF licenses this file
- *  to you under the Apache License, Version 2.0 (the
- *  "License"); you may not use this file except in compliance
- *  with the License.  You may obtain a copy of the License at
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- *    https://www.apache.org/licenses/LICENSE-2.0
+ *      https://www.apache.org/licenses/LICENSE-2.0
  *
- *  Unless required by applicable law or agreed to in writing,
- *  software distributed under the License is distributed on an
- *  "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- *  KIND, either express or implied.  See the License for the
- *  specific language governing permissions and limitations
- *  under the License.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
-if (!rootProject.ext.has('substitutableFunctionalTestProjectsCache')) {
-    def skippedProjects = testProjects + docProjects + cliProjects
-    rootProject.ext.set('substitutableFunctionalTestProjectsCache', rootProject.subprojects
-            .findAll { !(it.name in skippedProjects) }
-            .collect { subproject ->
-                // Ensure the target project is evaluated before we attempt to substitute it.
-                // This is necessary because it may not have been evaluated yet, and we need to
-                // ensure that the artifactId and cliArtifactId properties are available for substitution.
-                project.evaluationDependsOn(subproject.path)
-                return [
-                        name: subproject.name,
-                        group: subproject.group,
-                        artifactId: subproject.findProperty('pomArtifactId') ?: subproject.name,
-                        cliArtifactId: subproject.findProperty('cliArtifactId'),
-                        hasTestFixtures: subproject.plugins.hasPlugin('java-test-fixtures')
-                ]
-            }
-    )
-}
-def substitutableProjects = rootProject.ext.get('substitutableFunctionalTestProjectsCache')
-configurations.configureEach {
-    resolutionStrategy.dependencySubstitution { substitution ->
-        // Test projects will often include dependencies from local projects. This will ensure any dependencies
-        // included will be substituted with the local projects in this repository instead of pulling upstream.
-        for (def substitutionInfo : substitutableProjects) {
-            def substitutedArtifact = "${substitutionInfo.group}:${substitutionInfo.artifactId}" as String
-            if (substitutionInfo.name == 'grails-bom') {
-                substitute module(substitutedArtifact) using platform(project(':grails-bom'))
-            } else if (substitutionInfo.hasTestFixtures) {
-                def selector = substitution.variant(module(substitutedArtifact)) { details ->
-                    details.capabilities { handler ->
-                        handler.requireCapability("${substitutedArtifact}-test-fixtures" as String)
-                    }
-                }
-                def replacement = substitution.variant(project(":${substitutionInfo.name}")) { details ->
-                    details.capabilities { handler ->
-                        handler.requireCapability("${substitutedArtifact}-test-fixtures" as String)
-                    }
-                }
-                substitute selector using replacement
-            } else {
-                substitute module(substitutedArtifact) using project(":${substitutionInfo.name}")
-            }
+def localPublications = [
+        'grails-micronaut'                : ':grails-micronaut',
+        'grails-micronaut-bom'            : ':grails-micronaut-bom',
+        'grails-hibernate5-micronaut-bom' : ':grails-hibernate5-micronaut-bom',
+        'grails-hibernate7-micronaut-bom' : ':grails-hibernate7-micronaut-bom',
+]
 
-            // companion cli artifacts are additional publications of the same project,
-            // reachable locally through the project's cli capability
-            if (substitutionInfo.cliArtifactId) {
-                def cliCoordinate = "${substitutionInfo.group}:${substitutionInfo.cliArtifactId}" as String
-                def cliReplacement = substitution.variant(project(":${substitutionInfo.name}")) { details ->
-                    details.capabilities { handler ->
-                        handler.requireCapability(cliCoordinate)
-                    }
-                }
-                substitute module(cliCoordinate) using cliReplacement
-            }
+configurations.configureEach {
+    resolutionStrategy.dependencySubstitution {
+        localPublications.each { String artifactId, String projectPath ->
+            substitute module("org.apache.grails:$artifactId") using project(projectPath)
         }
     }
 }
 
-List<String> debugArguments = [
-        '-Xmx2g', '-Xdebug', '-Xnoagent', '-Djava.compiler=NONE',
-        '-Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=5005'
-]
 tasks.withType(Test).configureEach { Test task ->
-    boolean isHibernate5 = project.name.startsWith('grails-test-examples-hibernate5')
-    boolean isHibernate7 = project.name.startsWith('grails-test-examples-hibernate7')
-    boolean isMongo = project.name.startsWith('grails-test-examples-mongodb')
-    boolean isSpringSecurity = project.name.startsWith('grails-test-examples-spring-security')
-    boolean isRedis = project.name.startsWith('grails-test-examples-redis')
-    boolean isNeo4j = project.name.startsWith('grails-test-examples-neo4j')
-
-    // Honor DO_NOT_CACHE_TESTS=1 so developers can repeatedly invoke the same test command
-    // without --rerun-tasks (and without recompiling everything else).
     task.outputs.cacheIf { !doNotCacheTests }
     task.outputs.upToDateWhen { !doNotCacheTests }
-
-    onlyIf {
-        if (['skipFunctionalTests', 'onlyCoreTests', 'skipTests'].any { project.hasProperty(it) }) {
-            return false
-        }
-
-        if (!isHibernate5 && project.hasProperty('onlyHibernate5Tests')) {
-            return false
-        }
-
-        if (!isHibernate7 && project.hasProperty('onlyHibernate7Tests')) {
-            return false
-        }
-
-        if (!isNeo4j && project.hasProperty('onlyNeo4jTests')) {
-            return false
-        }
-
-        if (isHibernate5 && project.hasProperty('skipHibernate5Tests')) {
-            return false
-        }
-
-        if (isHibernate7 && project.hasProperty('skipHibernate7Tests')) {
-            return false
-        }
-
-        if (!isMongo && project.hasProperty('onlyMongodbTests')) {
-            return false
-        }
-
-        if (isMongo && project.hasProperty('skipMongodbTests')) {
-            return false
-        }
-
-        if (!isSpringSecurity && project.hasProperty('onlySpringSecurityTests')) {
-            return false
-        }
-
-        if (isSpringSecurity && project.hasProperty('skipSpringSecurityTests')) {
-            return false
-        }
-
-        if (!isRedis && project.hasProperty('onlyRedisTests')) {
-            return false
-        }
-
-        if (isRedis && project.hasProperty('skipRedisTests')) {
-            return false
-        }
-
-        if (isNeo4j && project.hasProperty('skipNeo4jTests')) {
-            return false
-        }
-
-        return true
-    }
-
-    if (isMongo && project.hasProperty('serializeMongoTests')) {
-        // if the developer decides to run a local mongo instance, the tests must be serialized instead of launching containers as needed
-        task.outputs.dir rootProject.layout.buildDirectory.dir('mongo-test-serialize')
-    }
-
-    task.useJUnitPlatform {
-        if (project.hasProperty('includeTestTags')) {
-            // Will only run tests that are tagged with specific tags
-            // e.g. @spock.lang.Tag('geb')
-            // Run with: ./gradlew iT -PincludeTestTags=geb (comma-separated list)
-            includeTags((project.property('includeTestTags') as String).split(',')*.trim() as String[])
-        }
-        if (project.hasProperty('excludeTestTags')) {
-            // Will not run tests that are tagged with specific tags
-            // e.g. @spock.lang.Tag('geb')
-            // Run with: ./gradlew iT -PincludeTestTags=geb
-            excludeTags((project.property('excludeTestTags') as String).split(',')*.trim() as String[])
-        }
-    }
+    task.useJUnitPlatform()
     task.testLogging {
         events('passed', 'skipped', 'failed', 'standardOut', 'standardError')
         showExceptions = true
@@ -177,35 +43,11 @@ tasks.withType(Test).configureEach { Test task ->
     }
     if (findProperty('testForked')) {
         task.maxParallelForks = rootProject.ext.configuredTestParallel
-        task.forkEvery = (findProperty('testForkEvery') ?: 0)
+        task.forkEvery = findProperty('testForkEvery') ?: 0
     }
-    if (findProperty('testJvmArgs')) {
-        task.jvmArgs = property('testJvmArgs') as List<String>
-    }
-    if (System.getProperty('debug.tests')) {
-        task.jvmArgs += debugArguments
-    }
-
-    // Waiting at-checks keep Geb tests resilient when a page is still loading after navigation.
-    systemProperty('grails.geb.atCheckWaiting.enabled', 'true')
-    systemProperty('grails.geb.timeouts.timeout', '30')
-
-    // Allow extra headroom for slow async endpoint warm-up under CI load (default is 60s).
     systemProperty('grails.http.client.timeout', '120')
-
-    systemProperty('geb.build.reportsDir', reporting.file("$projectDir/build/geb-reports"))
-    systemProperty('grails.geb.reporting.directory', reporting.file("$projectDir/build/geb-reports").canonicalFile.absolutePath)
-    systemProperty('TESTCONFIG', System.getProperty('TESTCONFIG'))
-
-    if (isMongo && rootProject.hasProperty('mongodbContainerVersion')) {
-        // The version the build asks for reaches the Gradle JVM as a project property and stops
-        // there, while the application under test reads a system property: without this a matrix
-        // asking for one version and an application defaulting to another agree only by accident.
-        systemProperty('mongodbContainerVersion', rootProject.property('mongodbContainerVersion'))
-    }
 }
 
 tasks.named('groovydoc').configure {
-    // We don't need to generate docs for test projects
     enabled = false
 }

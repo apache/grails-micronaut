@@ -21,18 +21,17 @@ plugins {
     id 'org.apache.grails.buildsrc.dependency-validator'
     id 'org.apache.grails.buildsrc.compile'
     id 'org.apache.grails.buildsrc.vulnerability-scan'
+    id 'org.apache.grails.gradle.grails-web'
 }
 
 version = '0.1'
 group = 'issue11767.app'
 
-apply plugin: 'org.apache.grails.gradle.grails-web'
-
 dependencies {
     implementation enforcedPlatform(project(':grails-micronaut-bom'))
 
     implementation 'org.apache.grails:grails-dependencies-starter-web'
-    implementation 'org.apache.grails:grails-micronaut'
+    implementation "org.apache.grails:grails-micronaut:$projectVersion"
     implementation project(':grails-test-examples-plugins-issue-11767')
 
     testImplementation 'org.apache.grails:grails-testing-support-web'

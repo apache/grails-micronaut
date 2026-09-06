@@ -1,2 +1,0 @@
-org.springframework.aot.hint.RuntimeHintsRegistrar=\
-org.apache.grails.datamapping.validation.aot.ConstrainedPropertyRuntimeHints

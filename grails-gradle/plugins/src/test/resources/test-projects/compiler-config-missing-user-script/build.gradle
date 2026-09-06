@@ -1,7 +1,0 @@
-plugins {
-    id 'org.apache.grails.gradle.grails-app'
-}
-
-tasks.named('compileGroovy', GroovyCompile) {
-    groovyOptions.configurationScript = file('missing-config.groovy')
-}

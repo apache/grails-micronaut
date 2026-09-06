@@ -22,19 +22,17 @@ plugins {
     id 'org.apache.grails.buildsrc.properties'
     id 'org.apache.grails.buildsrc.compile'
     id 'org.apache.grails.buildsrc.dependency-validator'
+    id 'org.apache.grails.gradle.grails-web'
+    id 'org.apache.grails.gradle.grails-gsp'
+    id 'cloud.wondrify.asset-pipeline'
 }
 
 version = '0.1'
 group = 'micronaut'
 
-apply plugin: 'org.apache.grails.gradle.grails-web'
-apply plugin: 'cloud.wondrify.asset-pipeline'
-
 // The grails-gsp Gradle plugin is not needed for running the functional tests.
 // It is applied as a smoke test to check that compiling gsp
 // for production does not fail during build task.
-apply plugin: 'org.apache.grails.gradle.grails-gsp'
-
 dependencies {
     implementation enforcedPlatform(project(':grails-micronaut-bom'))
 
@@ -42,7 +40,7 @@ dependencies {
     implementation 'io.micronaut:micronaut-retry'
     implementation 'io.micronaut.serde:micronaut-serde-jackson'
     implementation 'org.apache.grails:grails-dependencies-starter-web'
-    implementation 'org.apache.grails:grails-micronaut'
+    implementation "org.apache.grails:grails-micronaut:$projectVersion"
     implementation 'org.apache.grails:grails-scaffolding'
     implementation project(':grails-test-examples-plugins-micronaut-singleton')
 

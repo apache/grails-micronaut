@@ -18,7 +18,6 @@
  */
 package org.apache.grails.micronaut
 
-import groovy.transform.CompileStatic
 import groovy.util.logging.Slf4j
 
 import io.micronaut.context.ApplicationContext as MicronautApplicationContext
@@ -27,15 +26,16 @@ import io.micronaut.context.env.PropertySource
 
 import org.springframework.core.env.EnumerablePropertySource
 
+import grails.compiler.GrailsCompileStatic
 import grails.plugins.GrailsPlugin
 import grails.plugins.GrailsPluginManager
 import grails.plugins.Plugin
 
 @Slf4j
-@CompileStatic
+@GrailsCompileStatic
 class GrailsMicronautGrailsPlugin extends Plugin {
 
-    def grailsVersion = '7.0.0-SNAPSHOT > *'
+    def grailsVersion = '8.0.0-SNAPSHOT > *'
     def title = 'Grails Micronaut Plugin'
 
     private static final String PLUGIN_YML_SUFFIX = '-plugin.yml'
@@ -70,7 +70,7 @@ class GrailsMicronautGrailsPlugin extends Plugin {
 
         def springEnv = applicationContext.environment
         def springPropertySources = springEnv.propertySources
-        def plugins = pluginManager.allPlugins
+        def plugins = pluginManager ? pluginManager.allPlugins : new GrailsPlugin[0]
         def pluginsFromContext = pluginManagerFromContext ?
                 pluginManagerFromContext.allPlugins :
                 new GrailsPlugin[0]

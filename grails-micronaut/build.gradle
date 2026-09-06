@@ -44,9 +44,14 @@ dependencies {
     api 'io.micronaut.spring:micronaut-spring-boot-starter'
 
     // For the grails plugin interface
-    compileOnly project(':grails-core')
+    compileOnly 'org.apache.grails:grails-core'
+
+    testImplementation platform(project(':grails-micronaut-bom'))
+    testImplementation 'org.apache.grails:grails-core'
+    testImplementation 'org.spockframework:spock-core'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
-apply {
-    from rootProject.layout.projectDirectory.file('gradle/docs-config.gradle')
+tasks.named('test') {
+    useJUnitPlatform()
 }
