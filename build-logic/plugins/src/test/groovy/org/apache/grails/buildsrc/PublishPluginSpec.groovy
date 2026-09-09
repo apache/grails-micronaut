@@ -110,4 +110,66 @@ class PublishPluginSpec extends Specification {
         then:
         files == [shared]
     }
+
+    void "collectChecksumInputFiles copies POM-only publications to a canonical filename"() {
+        given: "a java-platform style publication with no jar artifacts"
+        Project project = ProjectBuilder.builder().withProjectDir(tmp).withName('grails-micronaut-bom').build()
+        PublishingExtension publishing = publishingOf(project)
+        publishing.publications.create('maven', MavenPublication) { MavenPublication pub ->
+            pub.groupId = 'org.apache.grails'
+            pub.artifactId = 'grails-micronaut-bom'
+            pub.version = '8.0.0'
+        }
+        File pomDir = new File(tmp, 'build/publications/maven')
+        pomDir.mkdirs()
+        new File(pomDir, 'pom-default.xml').text = '<project/>'
+
+        when:
+        List<File> files = PublishPlugin.collectChecksumInputFiles(project, publishing)
+
+        then:
+        files.size() == 1
+        files[0].name == 'grails-micronaut-bom-8.0.0.pom'
+        files[0].text == '<project/>'
+    }
+
+    void "collectChecksumInputFiles includes jars plus canonical metadata for every publication"() {
+        given: "the four published Micronaut coordinates: one plugin jar and three BOM publications"
+        Project project = ProjectBuilder.builder().withProjectDir(tmp).withName('grails-micronaut').build()
+        PublishingExtension publishing = publishingOf(project)
+        File pluginJar = artifact('grails-micronaut-8.0.0.jar')
+        publishing.publications.create('plugin', MavenPublication) { MavenPublication pub ->
+            pub.groupId = 'org.apache.grails'
+            pub.artifactId = 'grails-micronaut'
+            pub.version = '8.0.0'
+            pub.artifact(pluginJar)
+        }
+        ['grails-micronaut-bom', 'grails-hibernate5-micronaut-bom', 'grails-hibernate7-micronaut-bom'].each { String bom ->
+            publishing.publications.create(bom, MavenPublication) { MavenPublication pub ->
+                pub.groupId = 'org.apache.grails'
+                pub.artifactId = bom
+                pub.version = '8.0.0'
+            }
+            File pomDir = new File(tmp, "build/publications/${bom}")
+            pomDir.mkdirs()
+            new File(pomDir, 'pom-default.xml').text = "<project>${bom}</project>"
+        }
+        File pluginPomDir = new File(tmp, 'build/publications/plugin')
+        pluginPomDir.mkdirs()
+        new File(pluginPomDir, 'pom-default.xml').text = '<project>plugin</project>'
+
+        when:
+        List<File> files = PublishPlugin.collectChecksumInputFiles(project, publishing)
+
+        then:
+        files.contains(pluginJar)
+        files*.name.containsAll([
+                'grails-micronaut-8.0.0.jar',
+                'grails-micronaut-8.0.0.pom',
+                'grails-micronaut-bom-8.0.0.pom',
+                'grails-hibernate5-micronaut-bom-8.0.0.pom',
+                'grails-hibernate7-micronaut-bom-8.0.0.pom',
+        ])
+        files.size() == 5
+    }
 }

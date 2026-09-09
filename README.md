@@ -40,6 +40,15 @@ The build consumes published `org.apache.grails` artifacts from the Grails 8.0.x
 
 See [the Micronaut integration guide](docs/micronaut.adoc) for consumer configuration.
 
+## Versioning
+
+The Apache Grails versioning scheme is defined in [RELEASE.md](RELEASE.md#versioning).
+
+## Performing a Release
+
+See [RELEASE.md](RELEASE.md). Reproducible-build checks live under `etc/bin/`
+(`test-reproducible-builds.sh` and the Liberica 25 verification container).
+
 ## Licensing
 
 Apache Grails Micronaut is licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE).

@@ -31,6 +31,7 @@ configurations.configureEach {
 }
 
 tasks.withType(Test).configureEach { Test task ->
+    task.onlyIf { !project.hasProperty('skipTests') }
     task.outputs.cacheIf { !doNotCacheTests }
     task.outputs.upToDateWhen { !doNotCacheTests }
     task.useJUnitPlatform()

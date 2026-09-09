@@ -23,6 +23,7 @@ tasks.named('rat') {
             '.github/**',
             '.git-blame-ignore-revs',
             '.idea/**',
+            '.omo/**',
             '**/.gradle/**',
             '**/.gitattributes',
             '**/.gitignore',
@@ -36,6 +37,7 @@ tasks.named('rat') {
             'CODE_OF_CONDUCT.md',
             'gradlew*',
             'licenses/**',
+            'etc/bin/results/**',
     ]
     outputs.upToDateWhen { false }
 }

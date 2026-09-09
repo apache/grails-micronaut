@@ -35,6 +35,8 @@ import org.gradle.api.publish.maven.MavenArtifact
 import org.gradle.api.publish.maven.MavenPomDeveloper
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.publish.maven.tasks.AbstractPublishToMaven
+import org.gradle.api.publish.maven.tasks.GenerateMavenPom
+import org.gradle.api.publish.tasks.GenerateModuleMetadata
 import org.gradle.api.tasks.SourceSet
 import org.gradle.api.tasks.SourceSetContainer
 import org.gradle.api.tasks.TaskProvider
@@ -117,6 +119,8 @@ class PublishPlugin implements Plugin<Project> {
             task.group = 'publishing'
             task.outputs.dir(artifactsDir)
             task.dependsOn(project.tasks.withType(Jar))
+            task.dependsOn(project.tasks.withType(GenerateMavenPom))
+            task.dependsOn(project.tasks.withType(GenerateModuleMetadata))
 
             // Capture publishing extension at configuration time to avoid Task.project access at execution time
             // See: https://docs.gradle.org/current/userguide/configuration_cache.html#config_cache:requirements:use_project_during_execution
@@ -141,6 +145,12 @@ class PublishPlugin implements Plugin<Project> {
                             )
                         }
                     }
+                    String coordinates = "$publication.groupId:$publication.artifactId:$publication.version"
+                    artifacts.put("${publication.artifactId}-${publication.version}.pom" as String, coordinates)
+                    File moduleFile = generatedModuleMetadataFile(project, publication)
+                    if (moduleFile?.exists()) {
+                        artifacts.put("${publication.artifactId}-${publication.version}.module" as String, coordinates)
+                    }
                 }
 
                 artifactsDir.get().asFile.with { dir ->
@@ -164,6 +174,8 @@ class PublishPlugin implements Plugin<Project> {
             check.checksumAlgorithm.set(Checksum.Algorithm.SHA512)
             check.outputDirectory.set(project.layout.buildDirectory.dir('checksums'))
             check.dependsOn(project.tasks.withType(Jar))
+            check.dependsOn(project.tasks.withType(GenerateMavenPom))
+            check.dependsOn(project.tasks.withType(GenerateModuleMetadata))
             check.finalizedBy(artifactsTask)
             check.inputFiles.from(project.provider { collectChecksumInputFiles(project, publishing) })
         }
@@ -184,6 +196,7 @@ class PublishPlugin implements Plugin<Project> {
      */
     protected static List<File> collectChecksumInputFiles(Project project, PublishingExtension publishing) {
         List<File> filesToChecksum = []
+        File metadataDir = project.layout.buildDirectory.dir('publication-metadata').get().asFile
         publishing.publications.withType(MavenPublication).each { MavenPublication publication ->
             project.logger.lifecycle('Maven Publication Found for project: {} with name {}', project.name, publication.name)
             publication.artifacts.each { MavenArtifact artifact ->
@@ -192,8 +205,46 @@ class PublishPlugin implements Plugin<Project> {
                 }
                 filesToChecksum << artifact.file
             }
+            filesToChecksum.addAll(copyCanonicalMetadata(project, publication, metadataDir))
         }
         filesToChecksum.unique(false)
+    }
+
+    protected static List<File> copyCanonicalMetadata(Project project, MavenPublication publication, File metadataDir) {
+        List<File> copied = []
+        File pomFile = generatedPomFile(project, publication)
+        if (pomFile?.exists()) {
+            metadataDir.mkdirs()
+            File canonical = new File(metadataDir, "${publication.artifactId}-${publication.version}.pom")
+            canonical.bytes = pomFile.bytes
+            copied << canonical
+        }
+        File moduleFile = generatedModuleMetadataFile(project, publication)
+        if (moduleFile?.exists()) {
+            metadataDir.mkdirs()
+            File canonical = new File(metadataDir, "${publication.artifactId}-${publication.version}.module")
+            canonical.bytes = moduleFile.bytes
+            copied << canonical
+        }
+        copied
+    }
+
+    private static File generatedPomFile(Project project, MavenPublication publication) {
+        String taskName = "generatePomFileFor${publication.name.capitalize()}Publication"
+        Task task = project.tasks.findByName(taskName)
+        if (task instanceof GenerateMavenPom) {
+            return ((GenerateMavenPom) task).destination
+        }
+        project.layout.buildDirectory.file("publications/${publication.name}/pom-default.xml").get().asFile
+    }
+
+    private static File generatedModuleMetadataFile(Project project, MavenPublication publication) {
+        String taskName = "generateMetadataFileFor${publication.name.capitalize()}Publication"
+        Task task = project.tasks.findByName(taskName)
+        if (task instanceof GenerateModuleMetadata) {
+            return ((GenerateModuleMetadata) task).outputFile.get().asFile
+        }
+        project.layout.buildDirectory.file("publications/${publication.name}/module.json").get().asFile
     }
 
     private static void disableSigningWhenTesting(Project project) {

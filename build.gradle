@@ -19,8 +19,24 @@ plugins {
     id 'org.nosphere.apache.rat'
 }
 
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
+
+import org.gradle.api.tasks.testing.Test
+
 ext {
     isReproducibleBuild = System.getenv('SOURCE_DATE_EPOCH') != null
+    buildInstant = java.util.Optional.ofNullable(System.getenv('SOURCE_DATE_EPOCH'))
+            .filter(s -> !s.isEmpty())
+            .map(Long::parseLong)
+            .map(Instant::ofEpochSecond)
+            .orElseGet(Instant::now)
+    formattedBuildDate = System.getenv('SOURCE_DATE_EPOCH') ?
+            DateTimeFormatter.ISO_INSTANT.format(buildInstant) :
+            DateTimeFormatter.ISO_DATE.format(LocalDate.ofInstant(buildInstant as Instant, ZoneOffset.UTC))
+    buildDate = (buildInstant as Instant).atZone(ZoneOffset.UTC)
     isCiBuild = System.getenv().get('CI') as Boolean
     doNotCacheTests = System.getenv('DO_NOT_CACHE_TESTS')?.toBoolean()
     configuredTestParallel = findProperty('maxTestParallel') as Integer ?:
@@ -28,6 +44,13 @@ ext {
 }
 
 subprojects {
+    ext.formattedBuildDate = rootProject.ext.formattedBuildDate
+    ext.buildDate = rootProject.ext.buildDate
+
+    tasks.withType(Test).configureEach { Test task ->
+        task.onlyIf { !project.hasProperty('skipTests') }
+    }
+
     configurations.configureEach {
         resolutionStrategy {
             def cacheHours = isCiBuild || isReproducibleBuild ? 0 : 24

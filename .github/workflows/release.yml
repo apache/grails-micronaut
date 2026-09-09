@@ -21,20 +21,32 @@ on:
 
 permissions: { }
 
+env:
+  JAVA_DISTRIBUTION: liberica
+  # Keep synced with .sdkmanrc and etc/bin/Dockerfile.
+  JAVA_VERSION: 25.0.3
+  TAG: ${{ github.event.release.tag_name }}
+
 jobs:
   publish:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
       - name: Checkout release tag
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
           ref: ${{ github.event.release.tag_name }}
+      - name: Store common build date
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
+      - name: Ensure source files use common date
+        run: find . -depth \( -type f -o -type d \) -exec touch -d "@${SOURCE_DATE_EPOCH}" {} +
       - name: Setup JDK 25
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
-          distribution: liberica
-          java-version: 25.0.3
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+          java-version: ${{ env.JAVA_VERSION }}
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         with:
@@ -67,3 +79,13 @@ jobs:
           NEXUS_PUBLISH_STAGING_PROFILE_ID: ${{ secrets.STAGING_PROFILE_ID }}
           SIGNING_KEY: ${{ secrets.GPG_KEY_ID }}
         run: ./gradlew publishToSonatype closeSonatypeStagingRepository aggregateChecksums aggregatePublishedArtifacts -PprojectVersion=${RELEASE_VERSION} --no-build-cache
+      - name: Generate build date file
+        run: echo "$SOURCE_DATE_EPOCH" > build/BUILD_DATE.txt
+      - name: Upload build date, checksums and published artifacts
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          tag_name: ${{ env.TAG }}
+          files: |
+            build/BUILD_DATE.txt
+            build/CHECKSUMS.txt
+            build/PUBLISHED_ARTIFACTS.txt

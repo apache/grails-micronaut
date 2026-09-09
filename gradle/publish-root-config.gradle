@@ -33,12 +33,66 @@ subprojects {
 
 tasks.register('publishAllPublicationsToTestCaseMavenRepoRepository')
 
-tasks.register('aggregateChecksums') {
+def aggregatePublishedArtifacts = tasks.register('aggregatePublishedArtifacts')
+
+tasks.register('aggregateChecksums').configure {
     group = 'publishing'
-    dependsOn(subprojects.findResults { it.tasks.names.contains('publishedChecksums') ? "${it.path}:publishedChecksums" : null })
+    description = 'Aggregates SHA-512 checksums from the four published modules into one file.'
+
+    def outputFileProvider = rootProject.layout.buildDirectory.file('CHECKSUMS.txt')
+    outputs.file(outputFileProvider)
+
+    dependsOn(
+            subprojects
+                    .findResults { it.tasks.names.contains('publishedChecksums') ? "${it.path}:publishedChecksums" : null }
+    )
+    finalizedBy(aggregatePublishedArtifacts)
+    outputs.upToDateWhen { false }
+
+    doLast {
+        def outputFile = outputFileProvider.get().asFile
+        outputFile.withPrintWriter { writer ->
+            subprojects.each { sub ->
+                def checksumDir = sub.layout.buildDirectory.dir('checksums').get().asFile
+                if (checksumDir.exists()) {
+                    checksumDir.eachFileMatch(~/.*\.sha512/) {
+                        def jarName = it.name - '.sha512'
+                        def checksumLine = it.text.trim()
+                        def checksum = checksumLine.tokenize().first()
+                        writer.println("$jarName $checksum")
+                    }
+                }
+            }
+        }
+        println "Checksum manifest written to ${outputFile}"
+    }
 }
 
-tasks.register('aggregatePublishedArtifacts') {
+aggregatePublishedArtifacts.configure {
     group = 'publishing'
+    description = 'Aggregates published Maven coordinates from the four published modules into one file.'
+
+    def outputFileProvider = rootProject.layout.buildDirectory.file('PUBLISHED_ARTIFACTS.txt')
+    outputs.file(outputFileProvider)
+    outputs.upToDateWhen { false }
+
     dependsOn(subprojects.findResults { it.tasks.names.contains('savePublishedArtifacts') ? "${it.path}:savePublishedArtifacts" : null })
+
+    doLast {
+        def outputFile = outputFileProvider.get().asFile
+        outputFile.text = ''
+        outputFile.withPrintWriter { writer ->
+            subprojects.each { sub ->
+                def artifactsDir = sub.layout.buildDirectory.dir('artifacts').get().asFile
+                if (artifactsDir.exists()) {
+                    artifactsDir.eachFileMatch(~/.*\.txt/) {
+                        def artifactName = it.name - '.txt'
+                        def coordinates = it.text.trim()
+                        writer.println("$artifactName $coordinates")
+                    }
+                }
+            }
+        }
+        println "Published artifacts written to ${outputFile}"
+    }
 }
