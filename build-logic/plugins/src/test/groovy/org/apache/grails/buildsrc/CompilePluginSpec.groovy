@@ -116,6 +116,90 @@ class CompilePluginSpec extends Specification {
         result.output.contains('TEST_INDY=true')
     }
 
+    def "compiler configuration stamps the published project version"() {
+        given:
+        testProjectDir.resolve('build.gradle').toFile().text = """
+            plugins {
+                id 'groovy'
+                id 'org.apache.grails.buildsrc.compile'
+            }
+
+            version = '8.0.0-SNAPSHOT'
+
+            ext {
+                javaVersion = 21
+                grailsVersion = '8.0.0'
+                formattedBuildDate = '2026-01-01'
+            }
+
+            repositories {
+                mavenCentral()
+            }
+        """
+
+        when:
+        def result = GradleRunner.create()
+                .withProjectDir(testProjectDir.toFile())
+                .withArguments(['grailsCompilerConfigCompileGroovy', '--stacktrace'])
+                .withPluginClasspath()
+                .build()
+
+        then:
+        result.task(':grailsCompilerConfigCompileGroovy').outcome == TaskOutcome.SUCCESS
+        def script = testProjectDir.resolve('build/groovy-compiler/compileGroovy-config.groovy').toFile().text
+        script.contains("putNodeMetaData('projectVersion', '8.0.0-SNAPSHOT')")
+        script.contains("putNodeMetaData('projectName',")
+    }
+
+    def "clean compileGroovy regenerates the compiler script in one invocation"() {
+        given:
+        def sourceDir = testProjectDir.resolve('src/main/groovy').toFile()
+        sourceDir.mkdirs()
+        new File(sourceDir, 'Hello.groovy').text = 'class Hello { String greet() { "ok" } }\n'
+        testProjectDir.resolve('build.gradle').toFile().text = """
+            plugins {
+                id 'groovy'
+                id 'org.apache.grails.buildsrc.compile'
+            }
+
+            version = '8.0.0-SNAPSHOT'
+
+            ext {
+                javaVersion = 21
+                grailsVersion = '8.0.0'
+                formattedBuildDate = '2026-01-01'
+            }
+
+            repositories {
+                mavenCentral()
+            }
+
+            dependencies {
+                implementation localGroovy()
+            }
+        """
+        // Give clean real work. An empty build directory leaves clean UP_TO_DATE, which never
+        // proves the compiler script is recreated after deletion.
+        def staleBuild = testProjectDir.resolve('build').toFile()
+        staleBuild.mkdirs()
+        new File(staleBuild, 'delete-me.txt').text = 'stale'
+
+        when:
+        def result = GradleRunner.create()
+                .withProjectDir(testProjectDir.toFile())
+                .withArguments(['clean', 'compileGroovy', '--stacktrace'])
+                .withPluginClasspath()
+                .build()
+
+        then:
+        result.task(':clean').outcome == TaskOutcome.SUCCESS
+        result.task(':grailsCompilerConfigCompileGroovy').outcome == TaskOutcome.SUCCESS
+        result.task(':compileGroovy').outcome == TaskOutcome.SUCCESS
+        testProjectDir.resolve('build/groovy-compiler/compileGroovy-config.groovy').toFile().text
+                .contains("putNodeMetaData('projectVersion', '8.0.0-SNAPSHOT')")
+        testProjectDir.resolve('build/classes/groovy/main/Hello.class').toFile().exists()
+    }
+
     private def runPrintIndy(String... extraArgs) {
         GradleRunner.create()
                 .withProjectDir(testProjectDir.toFile())

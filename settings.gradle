@@ -27,11 +27,11 @@ pluginManagement {
         configurePluginRepositories(delegate)
     }
     plugins {
-        def grailsVersion = providers.gradleProperty('projectVersion').get()
+        def grailsVersion = providers.gradleProperty('grailsVersion').get()
         id 'org.apache.grails.gradle.grails-gsp' version grailsVersion
         id 'org.apache.grails.gradle.grails-plugin' version grailsVersion
         id 'org.apache.grails.gradle.grails-web' version grailsVersion
-        id 'cloud.wondrify.asset-pipeline' version '5.2.0-M3'
+        id 'cloud.wondrify.asset-pipeline' version '5.2.0'
         id 'org.nosphere.apache.rat' version '0.8.1'
     }
 }

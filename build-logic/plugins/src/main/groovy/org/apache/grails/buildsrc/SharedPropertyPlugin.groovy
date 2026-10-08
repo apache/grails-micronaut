@@ -81,7 +81,9 @@ class SharedPropertyPlugin implements Plugin<Project> {
                     }
                 }
 
-                if (rootProperties.containsKey('projectVersion')) {
+                // An explicit grailsVersion pins the released Grails line. Fall back to
+                // projectVersion only when this build is still the Grails repository itself.
+                if (rootProperties.containsKey('projectVersion') && !ext.has('grailsVersion')) {
                     ext.set('grailsVersion', rootProperties.getProperty('projectVersion'))
                 }
             }

@@ -39,10 +39,10 @@ Set<String> overriddenCoordinates = micronautBomDependencies.values().collect { 
     "${parts[0]}:${parts[1]}" as String
 } as Set<String>
 
-flattenPublishedPlatformConstraints("org.apache.grails:grails-base-bom:$projectVersion", overriddenCoordinates)
+flattenPublishedPlatformConstraints("org.apache.grails:grails-base-bom:$grailsVersion", overriddenCoordinates)
 
 dependencies {
-    api(platform("org.apache.grails:grails-base-bom:$projectVersion")) {
+    api(platform("org.apache.grails:grails-base-bom:$grailsVersion")) {
         overriddenCoordinates.each { String coordinate ->
             List<String> parts = coordinate.split(':') as List<String>
             exclude group: parts[0], module: parts[1]
