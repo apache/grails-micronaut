@@ -118,29 +118,12 @@ class CompilePluginSpec extends Specification {
 
     def "compiler configuration stamps the published project version"() {
         given:
-        testProjectDir.resolve('build.gradle').toFile().text = """
-            plugins {
-                id 'groovy'
-                id 'org.apache.grails.buildsrc.compile'
-            }
-
-            version = '8.0.0-SNAPSHOT'
-
-            ext {
-                javaVersion = 21
-                grailsVersion = '8.0.0'
-                formattedBuildDate = '2026-01-01'
-            }
-
-            repositories {
-                mavenCentral()
-            }
-        """
+        usePublishedBuild('projectVersion')
 
         when:
         def result = GradleRunner.create()
                 .withProjectDir(testProjectDir.toFile())
-                .withArguments(['grailsCompilerConfigCompileGroovy', '--stacktrace'])
+                .withArguments(['grailsCompilerConfigCompileGroovy', 'printManifestVersion', '-PprojectVersion=8.0.0-SNAPSHOT', '--stacktrace'])
                 .withPluginClasspath()
                 .build()
 
@@ -148,21 +131,43 @@ class CompilePluginSpec extends Specification {
         result.task(':grailsCompilerConfigCompileGroovy').outcome == TaskOutcome.SUCCESS
         def script = testProjectDir.resolve('build/groovy-compiler/compileGroovy-config.groovy').toFile().text
         script.contains("putNodeMetaData('projectVersion', '8.0.0-SNAPSHOT')")
-        script.contains("putNodeMetaData('projectName',")
+        script.contains("putNodeMetaData('projectName', 'grails-micronaut')")
+        result.output.contains('IMPL_VERSION=8.0.0-SNAPSHOT')
+        !script.contains('7.9.9')
     }
 
-    def "clean compileGroovy regenerates the compiler script in one invocation"() {
+    def "release version configures and stamps project.version"() {
         given:
-        def sourceDir = testProjectDir.resolve('src/main/groovy').toFile()
-        sourceDir.mkdirs()
-        new File(sourceDir, 'Hello.groovy').text = 'class Hello { String greet() { "ok" } }\n'
-        testProjectDir.resolve('build.gradle').toFile().text = """
+        usePublishedBuild('projectVersion')
+
+        when:
+        def result = GradleRunner.create()
+                .withProjectDir(testProjectDir.toFile())
+                .withArguments(['grailsCompilerConfigCompileGroovy', 'printManifestVersion', '-PprojectVersion=8.0.0', '--stacktrace'])
+                .withPluginClasspath()
+                .build()
+
+        then:
+        result.task(':grailsCompilerConfigCompileGroovy').outcome == TaskOutcome.SUCCESS
+        def script = testProjectDir.resolve('build/groovy-compiler/compileGroovy-config.groovy').toFile().text
+        script.contains("putNodeMetaData('projectVersion', '8.0.0')")
+        !script.contains('SNAPSHOT')
+        !script.contains('7.9.9')
+        script.contains("putNodeMetaData('projectName', 'grails-micronaut')")
+        result.output.contains('IMPL_VERSION=8.0.0')
+        !result.output.contains('IMPL_VERSION=8.0.0-SNAPSHOT')
+        !result.output.contains('IMPL_VERSION=7.9.9')
+    }
+
+    def "compiler version stamp is limited to published projects"() {
+        given:
+        testProjectDir.resolve('build.gradle').toFile().text = '''
             plugins {
                 id 'groovy'
                 id 'org.apache.grails.buildsrc.compile'
             }
 
-            version = '8.0.0-SNAPSHOT'
+            version = '0.1'
 
             ext {
                 javaVersion = 21
@@ -174,10 +179,39 @@ class CompilePluginSpec extends Specification {
                 mavenCentral()
             }
 
+            tasks.register('printCompilerScript') {
+                def compileTask = tasks.named('compileGroovy', org.gradle.api.tasks.compile.GroovyCompile)
+                doLast {
+                    println "HAS_WRITER=${tasks.names.contains('grailsCompilerConfigCompileGroovy')}"
+                    println "SCRIPT=${compileTask.get().groovyOptions.configurationScript}"
+                }
+            }
+        '''
+
+        when:
+        def result = GradleRunner.create()
+                .withProjectDir(testProjectDir.toFile())
+                .withArguments(['printCompilerScript', '--stacktrace'])
+                .withPluginClasspath()
+                .build()
+
+        then:
+        result.task(':printCompilerScript').outcome == TaskOutcome.SUCCESS
+        result.output.contains('HAS_WRITER=false')
+        result.output.contains('groovy-compile-configscript.groovy')
+        !result.output.contains('IMPL_VERSION=')
+    }
+
+    def "clean compileGroovy regenerates the compiler script in one invocation"() {
+        given:
+        def sourceDir = testProjectDir.resolve('src/main/groovy').toFile()
+        sourceDir.mkdirs()
+        new File(sourceDir, 'Hello.groovy').text = 'class Hello { String greet() { "ok" } }\n'
+        usePublishedBuild('projectVersion', '''
             dependencies {
                 implementation localGroovy()
             }
-        """
+        ''')
         // Give clean real work. An empty build directory leaves clean UP_TO_DATE, which never
         // proves the compiler script is recreated after deletion.
         def staleBuild = testProjectDir.resolve('build').toFile()
@@ -187,7 +221,7 @@ class CompilePluginSpec extends Specification {
         when:
         def result = GradleRunner.create()
                 .withProjectDir(testProjectDir.toFile())
-                .withArguments(['clean', 'compileGroovy', '--stacktrace'])
+                .withArguments(['clean', 'compileGroovy', '-PprojectVersion=8.0.0-SNAPSHOT', '--stacktrace'])
                 .withPluginClasspath()
                 .build()
 
@@ -198,6 +232,41 @@ class CompilePluginSpec extends Specification {
         testProjectDir.resolve('build/groovy-compiler/compileGroovy-config.groovy').toFile().text
                 .contains("putNodeMetaData('projectVersion', '8.0.0-SNAPSHOT')")
         testProjectDir.resolve('build/classes/groovy/main/Hello.class').toFile().exists()
+    }
+
+    private void usePublishedBuild(String versionLine, String extra = '') {
+        testProjectDir.resolve('settings.gradle').toFile().text = "rootProject.name = 'grails-micronaut'\n"
+        testProjectDir.resolve('build.gradle').toFile().text = """
+            plugins {
+                id 'groovy'
+                id 'org.apache.grails.gradle.grails-publish'
+                id 'org.apache.grails.buildsrc.publish'
+                id 'org.apache.grails.buildsrc.compile'
+            }
+
+            version = ${versionLine}
+            group = 'org.apache.grails'
+
+            ext {
+                javaVersion = 21
+                grailsVersion = '7.9.9'
+                formattedBuildDate = '2026-01-01'
+            }
+
+            repositories {
+                mavenCentral()
+            }
+
+            tasks.register('printManifestVersion') {
+                def manifestVersion = tasks.named('jar', org.gradle.api.tasks.bundling.Jar).map { jar ->
+                    String.valueOf(jar.manifest.attributes['Implementation-Version'])
+                }
+                doLast {
+                    println "IMPL_VERSION=\${manifestVersion.get()}"
+                }
+            }
+            ${extra}
+        """
     }
 
     private def runPrintIndy(String... extraArgs) {

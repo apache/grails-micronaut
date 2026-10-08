@@ -43,6 +43,8 @@ jobs:
         with:
           cache-provider: basic
           develocity-access-key: ${{ secrets.DEVELOCITY_ACCESS_KEY }}
+      - name: Configure a release version
+        run: ./gradlew help -PprojectVersion=8.0.0 --stacktrace
       - name: Build and test Grails Micronaut
         run: ./gradlew build rat --stacktrace
 

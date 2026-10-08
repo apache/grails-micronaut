@@ -25,13 +25,15 @@ Grails 8 Micronaut applications require JDK 25 or later.
 
 == Dependencies
 
-Apply one Grails Micronaut BOM as an `enforcedPlatform`, then add `grails-micronaut`:
+Apply one Grails Micronaut BOM as an `enforcedPlatform`, then add `grails-micronaut`.
+
+The BOM and plugin versions are the release of this repository. They are separate from the Grails framework version, so they need their own property:
 
 [source,groovy]
 ----
 dependencies {
-    implementation enforcedPlatform("org.apache.grails:grails-micronaut-bom:$grailsVersion")
-    implementation 'org.apache.grails:grails-micronaut'
+    implementation enforcedPlatform("org.apache.grails:grails-micronaut-bom:$grailsMicronautVersion")
+    implementation "org.apache.grails:grails-micronaut:$grailsMicronautVersion"
 }
 ----
 
