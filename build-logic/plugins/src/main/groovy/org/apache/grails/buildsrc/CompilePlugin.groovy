@@ -82,10 +82,11 @@ class CompilePlugin implements Plugin<Project> {
         }
 
         // Grails reads Implementation-Version from META-INF/MANIFEST.MF when compiler
-        // metadata is absent. Read project.version, which the build script assigns from
-        // projectVersion (including -PprojectVersion on a release), so the manifest and the
-        // compiler stamp share one source. grailsVersion is the released framework line and
-        // must not leak into this repository's jars.
+        // metadata is absent. The provider reads project.version when the manifest is
+        // written, not when the Jar task is realized. The build script assigns version
+        // from projectVersion (including -PprojectVersion on a release), so the manifest
+        // and the compiler stamp share one source. grailsVersion is the released framework
+        // line and must not leak into this repository's jars.
         // Note: we exclude attributes such as Built-By, Build-Jdk, Created-By to ensure the build is reproducible.
         project.tasks.withType(Jar).configureEach { Jar jar ->
             if (lookupPropertyByType(project, 'skipJavaComponent', Boolean)) {
@@ -95,7 +96,7 @@ class CompilePlugin implements Plugin<Project> {
 
             jar.manifest.attributes(
                     'Implementation-Title': 'Apache Grails',
-                    'Implementation-Version': project.version.toString(),
+                    'Implementation-Version': project.provider { project.version.toString() },
                     'Implementation-Vendor': 'grails.apache.org'
             )
             // Explicitly fail since duplicates indicate a double configuration that needs fixed
@@ -171,41 +172,33 @@ class CompilePlugin implements Plugin<Project> {
     }
 
     /**
-     * Stamps {@code project.version} onto every source set's Groovy compile.
+     * Stamps {@code project.version} onto each source set's Groovy compile.
      *
-     * <p>The writer is registered from the source-set container. Registering a task while
-     * iterating {@code tasks.withType(GroovyCompile)} throws {@code ConcurrentModificationException}
-     * once {@code projectVersion} is not a snapshot. Wiring
-     * {@code configurationScriptFile} to the writer's output makes the compile task depend on
-     * the writer, including after {@code clean} deletes {@code build/}.</p>
+     * <p>The writer is registered for that source set's compile task and wired with
+     * {@code configurationScriptFile}, so the compile task depends on the writer,
+     * including after {@code clean} deletes {@code build/}. A {@code GroovyCompile}
+     * registered outside a source set keeps the shared reproducibility script.</p>
      */
     private static void configurePublishedVersionScript(Project project) {
         SourceSetContainer sourceSets = project.extensions.getByType(SourceSetContainer)
         sourceSets.configureEach { SourceSet sourceSet ->
-            registerPublishedVersionScript(project, sourceSet.getCompileTaskName('groovy'))
-        }
-
-        project.tasks.withType(GroovyCompile).configureEach { GroovyCompile compile ->
-            TaskProvider<PublishedVersionCompilerScriptTask> writer = project.tasks.named(
-                    publishedVersionScriptTaskName(compile.name),
-                    PublishedVersionCompilerScriptTask
-            )
-            compile.groovyOptions.configurationScriptFile.set(writer.flatMap { PublishedVersionCompilerScriptTask task ->
-                task.outputFile
-            })
+            String compileTaskName = sourceSet.getCompileTaskName('groovy')
+            TaskProvider<PublishedVersionCompilerScriptTask> writer =
+                    registerPublishedVersionScript(project, compileTaskName)
+            project.tasks.named(compileTaskName, GroovyCompile).configure { GroovyCompile compile ->
+                compile.groovyOptions.configurationScriptFile.set(writer.flatMap { PublishedVersionCompilerScriptTask task ->
+                    task.outputFile
+                })
+            }
         }
     }
 
     private static TaskProvider<PublishedVersionCompilerScriptTask> registerPublishedVersionScript(Project project,
                                                                                                    String compileTaskName) {
         String writerName = publishedVersionScriptTaskName(compileTaskName)
-        if (project.tasks.names.contains(writerName)) {
-            return project.tasks.named(writerName, PublishedVersionCompilerScriptTask)
-        }
-
         Provider<String> version = project.provider { project.version.toString() }
         Provider<String> name = project.provider { project.name }
-        project.tasks.register(writerName, PublishedVersionCompilerScriptTask) { PublishedVersionCompilerScriptTask task ->
+        return project.tasks.register(writerName, PublishedVersionCompilerScriptTask) { PublishedVersionCompilerScriptTask task ->
             // `clean compileGroovy` schedules both, and command-line order is not a dependency.
             // Without this, clean can delete the script after the writer creates it.
             task.mustRunAfter('clean')
