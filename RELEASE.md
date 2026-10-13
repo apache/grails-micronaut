@@ -68,6 +68,9 @@ Milestones and RCs go through the same process as a final release.
 
 - The tag points at the exact commit to release. No SNAPSHOT dependencies; Apache
   [release policy](https://www.apache.org/legal/release-policy.html) forbids them.
+- `projectVersion` is this repository's version. The release workflow overrides it with
+  `-PprojectVersion`. `grailsVersion` is the released Grails line (8.0.0) imported by the
+  BOMs and used by the Grails Gradle plugins. Do not point `grailsVersion` at a snapshot.
 - JDK is pinned in [`.sdkmanrc`](.sdkmanrc) (`25.0.3-librca`). CI and
   [`etc/bin/Dockerfile`](etc/bin/Dockerfile) must use the same Liberica patch.
 - Secrets and variables:

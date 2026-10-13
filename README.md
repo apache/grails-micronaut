@@ -20,7 +20,7 @@ limitations under the License.
 
 This repository contains the Grails Micronaut plugin, its Micronaut-specific BOMs, and focused integration examples.
 
-The build consumes published `org.apache.grails` artifacts from the Grails 8.0.x repositories. Only the four artifacts owned by this repository are built locally:
+The build consumes the released Grails artifacts named by `grailsVersion` in `gradle.properties`. This repository's own version stays at `projectVersion` in that file until its release tag. Only the four artifacts owned by this repository are built locally:
 
 - `org.apache.grails:grails-micronaut`
 - `org.apache.grails:grails-micronaut-bom`

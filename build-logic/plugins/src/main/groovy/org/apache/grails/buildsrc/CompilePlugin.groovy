@@ -28,7 +28,11 @@ import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.file.DuplicatesStrategy
 import org.gradle.api.plugins.JavaPluginExtension
+import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.PathSensitivity
+import org.gradle.api.tasks.SourceSet
+import org.gradle.api.tasks.SourceSetContainer
+import org.gradle.api.tasks.TaskProvider
 import org.gradle.api.tasks.bundling.AbstractArchiveTask
 import org.gradle.api.tasks.bundling.Jar
 import org.gradle.api.tasks.compile.GroovyCompile
@@ -77,7 +81,12 @@ class CompilePlugin implements Plugin<Project> {
             it.withSourcesJar()
         }
 
-        // Grails determines the grails version via the META-INF/MANIFEST.MF file
+        // Grails reads Implementation-Version from META-INF/MANIFEST.MF when compiler
+        // metadata is absent. The provider reads project.version when the manifest is
+        // written, not when the Jar task is realized. The build script assigns version
+        // from projectVersion (including -PprojectVersion on a release), so the manifest
+        // and the compiler stamp share one source. grailsVersion is the released framework
+        // line and must not leak into this repository's jars.
         // Note: we exclude attributes such as Built-By, Build-Jdk, Created-By to ensure the build is reproducible.
         project.tasks.withType(Jar).configureEach { Jar jar ->
             if (lookupPropertyByType(project, 'skipJavaComponent', Boolean)) {
@@ -87,7 +96,7 @@ class CompilePlugin implements Plugin<Project> {
 
             jar.manifest.attributes(
                     'Implementation-Title': 'Apache Grails',
-                    'Implementation-Version': lookupPropertyByType(project, 'grailsVersion', String),
+                    'Implementation-Version': project.provider { project.version.toString() },
                     'Implementation-Vendor': 'grails.apache.org'
             )
             // Explicitly fail since duplicates indicate a double configuration that needs fixed
@@ -146,6 +155,13 @@ class CompilePlugin implements Plugin<Project> {
                 it.groovyOptions.configurationScript =
                         GradleUtils.findRootGrailsCoreDir(project).file('gradle/groovy-compile-configscript.groovy').asFile
             }
+
+            // Published projects replace that shared script with one that also stamps project.version.
+            // Projects that only apply the Grails Gradle plugins do not apply this publish plugin, so
+            // their own compiler configuration is left alone.
+            project.plugins.withId('org.apache.grails.buildsrc.publish') {
+                configurePublishedVersionScript(project)
+            }
             project.tasks.named('compileGroovy', GroovyCompile).configure { GroovyCompile task ->
                 // Resource-only changes do not ordinarily invalidate compilation. This file changes
                 // whether the compiler owns the generated imports resource, so adding or deleting it
@@ -153,6 +169,49 @@ class CompilePlugin implements Plugin<Project> {
                 registerAutoConfigurationImportsInput(project, task)
             }
         }
+    }
+
+    /**
+     * Stamps {@code project.version} onto each source set's Groovy compile.
+     *
+     * <p>The writer is registered for that source set's compile task and wired with
+     * {@code configurationScriptFile}, so the compile task depends on the writer,
+     * including after {@code clean} deletes {@code build/}. A {@code GroovyCompile}
+     * registered outside a source set keeps the shared reproducibility script.</p>
+     */
+    private static void configurePublishedVersionScript(Project project) {
+        SourceSetContainer sourceSets = project.extensions.getByType(SourceSetContainer)
+        sourceSets.configureEach { SourceSet sourceSet ->
+            String compileTaskName = sourceSet.getCompileTaskName('groovy')
+            TaskProvider<PublishedVersionCompilerScriptTask> writer =
+                    registerPublishedVersionScript(project, compileTaskName)
+            project.tasks.named(compileTaskName, GroovyCompile).configure { GroovyCompile compile ->
+                compile.groovyOptions.configurationScriptFile.set(writer.flatMap { PublishedVersionCompilerScriptTask task ->
+                    task.outputFile
+                })
+            }
+        }
+    }
+
+    private static TaskProvider<PublishedVersionCompilerScriptTask> registerPublishedVersionScript(Project project,
+                                                                                                   String compileTaskName) {
+        String writerName = publishedVersionScriptTaskName(compileTaskName)
+        Provider<String> version = project.provider { project.version.toString() }
+        Provider<String> name = project.provider { project.name }
+        return project.tasks.register(writerName, PublishedVersionCompilerScriptTask) { PublishedVersionCompilerScriptTask task ->
+            // `clean compileGroovy` schedules both, and command-line order is not a dependency.
+            // Without this, clean can delete the script after the writer creates it.
+            task.mustRunAfter('clean')
+            task.baseScript.set(GradleUtils.findRootGrailsCoreDir(project)
+                    .file('gradle/groovy-compile-configscript.groovy'))
+            task.publishedVersion.set(version)
+            task.publishedName.set(name)
+            task.outputFile.set(project.layout.buildDirectory.file("groovy-compiler/${compileTaskName}-config.groovy"))
+        }
+    }
+
+    private static String publishedVersionScriptTaskName(String compileTaskName) {
+        "grailsCompilerConfig${compileTaskName.capitalize()}"
     }
 
     static void registerAutoConfigurationImportsInput(Project project, GroovyCompile task) {

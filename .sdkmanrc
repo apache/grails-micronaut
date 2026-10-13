@@ -1,4 +1,4 @@
 # Micronaut 5 targets JVM 25 bytecode, so this repository builds and publishes on JDK 25.
 java=25.0.3-librca
 # Keep the Gradle version synced with gradle.properties and the wrapper.
-gradle=9.7.1
+gradle=9.8.0

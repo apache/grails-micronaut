@@ -39,12 +39,12 @@ Set<String> overriddenCoordinates = micronautBomDependencies.values().collect { 
     "${parts[0]}:${parts[1]}" as String
 } as Set<String>
 
-flattenPublishedPlatformConstraints("org.apache.grails:grails-base-bom:$projectVersion", overriddenCoordinates)
-flattenPublishedPlatformConstraints("org.apache.grails:grails-hibernate7-bom:$projectVersion", overriddenCoordinates)
+flattenPublishedPlatformConstraints("org.apache.grails:grails-base-bom:$grailsVersion", overriddenCoordinates)
+flattenPublishedPlatformConstraints("org.apache.grails:grails-hibernate7-bom:$grailsVersion", overriddenCoordinates)
 
 dependencies {
     api platform(project(':grails-micronaut-bom'))
-    api(platform("org.apache.grails:grails-hibernate7-bom:$projectVersion")) {
+    api(platform("org.apache.grails:grails-hibernate7-bom:$grailsVersion")) {
         overriddenCoordinates.each { String coordinate ->
             List<String> parts = coordinate.split(':') as List<String>
             exclude group: parts[0], module: parts[1]
@@ -60,7 +60,7 @@ dependencies {
                 }
             }
         }
-        api "org.apache.grails:grails-data-hibernate7:$projectVersion"
+        api "org.apache.grails:grails-data-hibernate7:$grailsVersion"
     }
 }
 
