@@ -1,0 +1,39 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements. See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License. You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Release - Drop Nexus Staging
+on:
+  workflow_dispatch:
+    inputs:
+      staging_repository_id:
+        description: 'Unpromoted staging repository ID (e.g. orgapachegrails-1000)'
+        required: true
+        type: string
+permissions: {}
+jobs:
+  drop:
+    environment: release
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Drop staging repository
+        env:
+          STAGING_REPOSITORY_ID: ${{ inputs.staging_repository_id }}
+          NEXUS_STAGE_DEPLOYER_USER: ${{ secrets.NEXUS_STAGE_DEPLOYER_USER }}
+          NEXUS_STAGE_DEPLOYER_PW: ${{ secrets.NEXUS_STAGE_DEPLOYER_PW }}
+          STAGING_PROFILE_ID: ${{ secrets.STAGING_PROFILE_ID }}
+        run: .github/scripts/dropStaging.sh --id "$STAGING_REPOSITORY_ID"

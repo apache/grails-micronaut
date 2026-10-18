@@ -21,6 +21,9 @@ tasks.named('rat') {
     excludes = [
             '.asf.yaml',
             '.github/**',
+            'BUILD_DATE',
+            'CHECKSUMS',
+            'PUBLISHED_ARTIFACTS',
             '.git-blame-ignore-revs',
             '.idea/**',
             '.omo/**',
