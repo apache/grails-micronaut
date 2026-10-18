@@ -16,7 +16,6 @@
 #
 # see https://s.apache.org/asfyaml
 github:
-  default_branch: 8.0.x
   # deployment environments to delay releasing until the necessary steps have completed
   environments:
     close:
