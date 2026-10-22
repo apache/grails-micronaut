@@ -1,0 +1,52 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements. See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License. You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Release - Close
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Already promoted release version (e.g. 8.0.0)'
+        required: true
+        type: string
+permissions: {}
+env:
+  VERSION: ${{ inputs.version }}
+  TARGET_BRANCH: ${{ github.ref_name }}
+jobs:
+  close:
+    environment: close
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      actions: write
+    steps:
+      - name: Validate release and target
+        run: |
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(M|RC)[0-9]+)?$ ]]
+          IFS=. read -r major minor _ <<< "$VERSION"
+          test "$TARGET_BRANCH" = "$major.$minor.x"
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: v${{ inputs.version }}
+          fetch-depth: 0
+      - name: Run post-release
+        uses: apache/grails-github-actions/post-release@asf
+        env:
+          RELEASE_VERSION: ${{ env.VERSION }}
+      - name: Merge-back reminder
+        run: echo 'Merge the merge-back PR with a merge commit, not squash or rebase. This workflow does not promote artifacts.'
