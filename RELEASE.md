@@ -59,20 +59,26 @@ MAJOR.MINOR.PATCH[-MODIFIER]
 - **MODIFIER** is `-M<n>` (milestone), `-RC<n>` (release candidate), `-SNAPSHOT`, or omitted for a final release.
 
 Tags are `v` plus the version (`v8.0.0-M1`). The workflow strips the prefix
-(`RELEASE_VERSION=${GITHUB_REF_NAME#v}`) and passes `-PprojectVersion=${RELEASE_VERSION}`.
-The checked-in default in `gradle.properties` stays a snapshot (`8.0.0-SNAPSHOT`) between releases.
+and runs `apache/grails-github-actions/pre-release@asf`. That action commits
+`projectVersion=<version>` in `gradle.properties` and moves the tag to that commit.
+The staged artifacts and source zip come from this updated tag, not the original commit.
+After promotion, `post-release@asf` opens a merge-back PR with the next SNAPSHOT version.
+Neither action changes `grailsVersion`; no extra `RELEASE_SCRIPT_PATH` is needed here.
 
 Milestones and RCs go through the same process as a final release.
 
 ## 1. Prerequisites
 
-- The tag points at the exact commit to release. No SNAPSHOT dependencies; Apache
+- The initial tag points at the code to release; pre-release adds the version commit. No SNAPSHOT dependencies; Apache
   [release policy](https://www.apache.org/legal/release-policy.html) forbids them.
-- `projectVersion` is this repository's version. The release workflow overrides it with
-  `-PprojectVersion`. `grailsVersion` is the released Grails line (8.0.0) imported by the
+- `projectVersion` is this repository's version. Pre-release writes the release version
+  into the tagged commit. `grailsVersion` is the released Grails line (8.0.0) imported by the
   BOMs and used by the Grails Gradle plugins. Do not point `grailsVersion` at a snapshot.
 - JDK is pinned in [`.sdkmanrc`](.sdkmanrc) (`25.0.3-librca`). CI and
   [`etc/bin/Dockerfile`](etc/bin/Dockerfile) must use the same Liberica patch.
+- Every file referenced by `LICENSE` and `NOTICE` must be present in the source
+  package and, where applicable, the JARs. The verification suite rejects missing
+  referenced license texts even when RAT passes.
 - Secrets and variables:
 
   | Name | Purpose |
@@ -83,21 +89,28 @@ Milestones and RCs go through the same process as a final release.
   | `NEXUS_STAGE_DEPLOYER_PW` | Staging password. |
   | `STAGING_PROFILE_ID` | Nexus staging profile. |
   | `STAGING_URL` | Repository variable for the staging API URL. |
-  | `DEVELOCITY_ACCESS_KEY` | Gradle Develocity (optional for a local rebuild). |
+  | `GRAILS_DEVELOCITY_ACCESS_KEY` | Gradle Develocity (optional for a local rebuild). |
+  | `SVC_DIST_GRAILS_USERNAME` | Service account for staging the source zip in SVN `dev`. |
+  | `SVC_DIST_GRAILS_PASSWORD` | SVN staging service account password. |
 
   Multi-line secrets such as the GPG key need a trailing newline.
 
 - The `release` / `close` / `docs` environments in [`.asf.yaml`](.asf.yaml) list reviewers
-  (GitHub caps private-group approvers; at most 6 named users). The current
-  [`release.yml`](.github/workflows/release.yml) stages JARs without those environment
-  gates. Promotion of the closed Nexus staging repository remains a **manual** PMC step.
+  (GitHub caps private-group approvers; at most 6 named users). Staging runs without
+  approval. The post-vote jobs use `release` for manual promotion instructions,
+  `docs` for the publication and announcement checkpoint, and `close` for the merge-back PR.
+  There is no documentation build or site deployment in this repository.
+- GitHub must allow the workflow token to update the release tag, create a merge-back
+  branch and open pull requests. Promotion of Nexus and SVN remains a **manual** PMC step
+  using personal ASF credentials; the SVN service account can write only to `dev`.
 
 ## 2. Cut the release
 
 1. Open <https://github.com/apache/grails-micronaut/releases> and **Draft a new release**.
 2. Tag `v<version>` (for example `v8.0.0-M1`) targeting `8.0.x` (or the maintenance branch).
 3. Generate release notes, then edit them.
-4. Check **Set as a pre-release** for milestones and RCs.
+4. Check **Set as a pre-release** while the candidate is under vote, including a final version.
+   Do not mark it latest until promotion succeeds.
 5. **Publish release**. That starts the `Release` workflow.
 
 ## 3. What the `publish` job does
@@ -108,12 +121,16 @@ The job in [`.github/workflows/release.yml`](.github/workflows/release.yml):
 2. Sets `SOURCE_DATE_EPOCH` from the last commit time and `touch`es the tree to that epoch
    so archive and documentation timestamps match a local rebuild.
 3. Uses Liberica JDK `25.0.3`.
-4. Runs `./gradlew build rat -PprojectVersion=${RELEASE_VERSION} --no-build-cache`.
-5. Initializes a Sonatype staging repository.
-6. Imports `GRAILS_GPG_KEY` and publishes the four artifacts with
-   `publishToSonatype closeSonatypeStagingRepository aggregateChecksums aggregatePublishedArtifacts`.
+4. Runs pre-release to commit `projectVersion` and update the tag, imports `GRAILS_GPG_KEY`,
+   then runs `./gradlew build rat --no-build-cache` so the staged bits are tested.
+5. Initializes one Sonatype staging repository with description `grails-micronaut:<version>`.
+6. Runs `findSonatypeStagingRepository publishToSonatype aggregateChecksums aggregatePublishedArtifacts`
+   with `-x initializeSonatypeStagingRepository`, then finds and closes that same repository
+   in a separate invocation, also excluding initialization. This avoids an orphan empty repository.
 7. Writes `build/BUILD_DATE.txt`, `build/CHECKSUMS.txt`, and `build/PUBLISHED_ARTIFACTS.txt`
-   and attaches them to the GitHub Release.
+    and attaches them temporarily to the GitHub Release. The build date is the epoch recorded
+    before pre-release, matching grails-core. Use `BUILD_DATE`, not the moved tag's timestamp,
+    when rebuilding the voted artifacts.
 
 The staging repository is **closed**, not released. Do not promote it until verification
 and the vote succeed.
@@ -124,28 +141,59 @@ ASF [release policy](https://www.apache.org/legal/release-policy.html) requires 
 release to include a **signed source package**. Maven JARs are convenience binaries.
 The official vote artifact is the source zip, staged under
 `https://dist.apache.org/repos/dist/dev/grails/micronaut/<version>/sources/`
-before the vote starts. This repository does not yet automate that zip; do it
-from the tagged commit:
+before the vote starts. The `source` and `upload` jobs now do this automatically:
 
-1. Check out the release tag. Remove files that must not ship in an ASF source
-   release (`.git`, `.github`, `.asf.yaml`, and `gradle-wrapper.jar` if your
-   bootstrap regenerates it).
-2. Copy `build/CHECKSUMS.txt`, `build/PUBLISHED_ARTIFACTS.txt`, and
-   `build/BUILD_DATE.txt` from the GitHub Release into the tree as `CHECKSUMS`,
-   `PUBLISHED_ARTIFACTS`, and `BUILD_DATE`.
-3. Zip to `apache-grails-micronaut-<version>-src.zip`.
-4. Detached-sign with the Grails key (`*.asc`) and write `*.sha512`.
-5. Commit those three files to
-   `dist/dev/grails/micronaut/<version>/sources/` using your ASF SVN credentials
-   (infra grants the GitHub secret write to `dev` only).
-6. Attach the same zip, `.asc`, and `.sha512` to the GitHub Release.
+1. Check out the exact post-pre-release commit recorded by `publish`.
+2. Remove `.git`, `.github`, agent worktrees, `KEYS`, and the root and `build-logic`
+   Gradle wrapper JARs, properties and launch scripts, including `gradlew.bat`.
+3. Include `CHECKSUMS`, `PUBLISHED_ARTIFACTS` and `BUILD_DATE` from the publish job.
+   The manifests include the four coordinates' JARs, POMs and Gradle module metadata.
+4. Normalize source timestamps and create `apache-grails-micronaut-<version>-src.zip`
+   with one top-level `grails-micronaut/` directory. Sign it and generate its SHA-512 file.
+5. Attach the zip, `.asc` and `.sha512` to the GitHub Release and remove the temporary
+   manifest assets, which are now inside the signed zip.
+6. Upload the same three files to SVN `dev/grails/micronaut/<version>/sources/`,
+   attach `DIST_SVN_REVISION.txt` to the GitHub Release, and print the PMC vote email.
 
-After the vote passes, a PMC member moves that folder from `dist/dev` to
-`dist/release` under their own credentials. Automating the zip job can follow
-[apache/grails-gradle-publish](https://github.com/apache/grails-gradle-publish)
-`.github/workflows/release.yaml`.
+The upload refuses to overwrite an existing candidate directory. Abort the candidate
+before staging a replacement. After the vote passes, a PMC member promotes the directory
+with personal credentials. Nothing is promoted by the staging service account.
 
 ## 4. Verify staged artifacts
+
+Use the automated suite from a checkout of the release tag with GNU coreutils, GPG,
+curl, unzip, and the exact Liberica JDK and Gradle versions in `.sdkmanrc`:
+
+```shell
+export PATH="$PWD:$PWD/etc/bin:$PATH"
+verify.sh v8.0.0 /tmp/grails-micronaut-verify
+```
+
+The download location is scratch space, not the repository. The suite compares the GitHub
+and SVN files, imports the official Grails KEYS into a temporary GPG home, verifies the
+source signature and contents, and checks signatures and checksums for all four coordinates.
+It rejects SNAPSHOT references in POMs and module metadata and checks JAR licenses and SBOMs.
+It then runs RAT, builds and tests the extracted source with `--no-build-cache`, and compares
+every published checksum, including BOM metadata. Any failure exits nonzero.
+
+The zip deliberately has no wrappers. Unlike core's multi-build `gradle-bootstrap` setup,
+this build can use an external `gradlew` on `PATH` (the container and verification workflow
+provide one) or the matching installed Gradle directly with `-p <extracted-source>`.
+No wrapper files are copied into the source tree, and `build-logic` is an included build
+that does not need its own wrapper. For a manual build with installed Gradle:
+
+```shell
+cd /tmp/grails-micronaut-verify/grails-micronaut
+export SOURCE_DATE_EPOCH="$(cat BUILD_DATE)"
+export TEST_BUILD_REPRODUCIBLE=true
+gradle build rat --no-build-cache
+```
+
+The individual `verify-*.sh` scripts can also be run separately. Use
+`reset-verify.sh v8.0.0 /tmp/grails-micronaut-verify` before retrying in the same scratch
+directory; it prompts before deleting the extracted tree and its verification results.
+Alternatively dispatch [Release - Verify Troubleshooting](.github/workflows/release-verify.yml)
+with the candidate tag. This workflow does not replace independent PMC verification.
 
 ### 4.1 License audit
 
@@ -171,14 +219,14 @@ throwaway checkout.
 
 ### 4.3 Rebuild vs staged JARs
 
-Use `build/CHECKSUMS.txt` and `build/PUBLISHED_ARTIFACTS.txt` from the GitHub Release:
+Use `CHECKSUMS` and `PUBLISHED_ARTIFACTS` inside the signed source zip:
 
-1. Import [KEYS](KEYS) or <https://dist.apache.org/repos/dist/release/grails/KEYS>.
+1. Import <https://dist.apache.org/repos/dist/release/grails/KEYS>.
 2. Download each JAR (and `.asc`) from the Nexus staging repository listed in
-   `PUBLISHED_ARTIFACTS.txt`.
+   `PUBLISHED_ARTIFACTS` (use `GRAILS_REPO_URL` to select a specific staging repository).
 3. `gpg --verify` each signature.
-4. Compare SHA-512 to `CHECKSUMS.txt`.
-5. Rebuild locally with the same `SOURCE_DATE_EPOCH` as `BUILD_DATE.txt` and
+4. Compare SHA-512 to `CHECKSUMS`.
+5. Rebuild locally with the same `SOURCE_DATE_EPOCH` as `BUILD_DATE` and
    `TEST_BUILD_REPRODUCIBLE=true` (disables signing) and compare hashes.
 
 Prefer the container in [Appendix: Verification from a container](#appendix-verification-from-a-container)
@@ -197,32 +245,62 @@ Only Grails PMC votes are binding. Minimum 72 hours and three PMC +1 votes.
 
 Include the tag, commit SHA, staging repository URL, GitHub Release URL, and checksum
 file URLs so voters can inspect the same bits.
+The `upload` job prints the adapted core template from `.github/vote_templates/staged.txt`.
+Replace `<Thread Link>`, review the text, and send it yourself. No workflow sends email.
 
 ## 6. Promote
 
 After the vote passes:
 
-1. Release the closed Nexus staging repository on
-   <https://repository.apache.org/#stagingRepositories> (or the project's release-jars
-   script, if you use one). Maven Central lag can be hours.
-2. Record the release at <https://reporter.apache.org/addrelease.html?grails> as
-   `micronaut-<version>` on the day the staging repository was released.
-3. Flag the GitHub Release as **latest** when it is a final line release.
-4. Announce from your `@apache.org` address to `dev@grails.apache.org`,
-   `users@grails.apache.org`, and `announce@apache.org`.
-5. Move the signed source distribution from
-   `dist/dev/grails/micronaut/<version>/` to
-   `dist/release/grails/micronaut/<version>/` (manual SVN, PMC credentials).
+1. Approve the `release` environment only after the minimum 72-hour vote passes.
+   The job prints the result email and manual promotion commands. Review and send the result.
+2. Release the closed Nexus staging repository on
+   <https://repository.apache.org/#stagingRepositories>, or run:
+
+   ```shell
+   .github/scripts/releaseJarFiles.sh grails-micronaut:8.0.0 <ASF_USER>
+   .github/scripts/releaseDistributions.sh v8.0.0 micronaut <ASF_USER>
+   ```
+
+   Both scripts prompt for personal ASF credentials and confirmation of the vote.
+   The second moves only `dev/grails/micronaut/<version>` to
+   `release/grails/micronaut/<version>` using SVN. It does not delete earlier releases.
+3. Record `MICRONAUT-<version>` at <https://reporter.apache.org/addrelease.html?grails>
+   with the promotion date. Wait for Maven Central and download mirrors to catch up.
+4. Approve the `docs` environment for the announcement checkpoint after promotion.
+   This repo has no separate documentation distribution or deployment job. Review the printed
+   announcement, replace the template placeholders, and send from your `@apache.org` address
+   to `dev@grails.apache.org`, `users@grails.apache.org`, and `announce@apache.org`.
+5. Approve `close`. The ASF post-release action closes the matching milestone, creates
+   `merge-back-<version>` from the released tag, bumps only `projectVersion` to the next
+   SNAPSHOT, and opens a PR into the release's maintenance branch. Merge with a merge commit,
+   not squash or rebase, so the tag becomes part of branch history. Clear the GitHub pre-release
+   flag for a final release and mark latest only when appropriate for the release line.
+
+If closing fails, run [Release - Close](.github/workflows/release-close.yml) from the matching
+maintenance branch with the released version. It is protected by `close` and does not promote
+artifacts. Inspect the original log first. If the token cannot push workflow changes or open
+a PR, create the merge-back branch from the tag, update `projectVersion` to the next SNAPSHOT,
+and open the merge-back PR with your own credentials. Do not change `grailsVersion`.
 
 ## Rollback
 
 Abort only **before** the staging repository is released to Maven Central. After that,
 ship a new version.
 
-1. Drop the staging repository on repository.apache.org.
-2. Cancel the GitHub Actions `Release` run.
-3. Delete the GitHub Release and `git push --delete origin v<version>`.
-4. If a `[VOTE]` thread exists, reply `[CANCEL][VOTE]` with the reason.
+Run [Release - Abort Release](.github/workflows/release-abort.yml) with the candidate tag.
+It requires `release` approval and a GitHub release still marked pre-release, and it refuses
+to run if the version already exists in the Nexus releases repository or SVN `release`.
+The workflow cancels the candidate's release runs and waits for them to stop, drops the Nexus
+repository by description `grails-micronaut:<version>`, removes only
+`dist/dev/grails/micronaut/<version>`, and deletes the GitHub Release and tag. Any SVN error
+other than a missing path stops it before the release and tag are deleted. If a `[VOTE]`
+thread exists, reply `[CANCEL][VOTE]` with the reason.
+
+To drop only a failed or orphan staging repository, use
+[Release - Drop Nexus Staging](.github/workflows/release-drop-staging.yml) with its Nexus ID.
+It also requires `release` approval and checks the configured staging profile before dropping.
+It does not delete the GitHub Release, tag or SVN files.
 
 ## Appendix: GPG and KEYS
 
@@ -250,9 +328,9 @@ Official artifacts are built on Ubuntu 24.04 with Liberica 25.0.3. The image in
 ```shell
 docker build -t grails-micronaut:testing -f etc/bin/Dockerfile .
 docker run -it --rm -v "$(pwd):/home/groovy/project" grails-micronaut:testing bash
-# inside:
-cd /home/groovy/project
-etc/bin/test-reproducible-builds.sh
+# inside the container:
+cd /home/groovy/grails-verify
+verify.sh v8.0.0 .
 ```
 
 Anyone bumping the JDK in `.sdkmanrc` or `release.yml` must bump the Dockerfile `FROM`
@@ -280,3 +358,4 @@ keeps the useful Grails reproducibility work and drops the grails-core dual-JDK 
 Common gotchas: properties files that embed `Date.toString()`, unsorted reflection,
 a different JDK patch, and Gradle's remote cache. Do not ship generated `.properties`
 with a timestamp comment. Sort anything taken from `Class.getDeclaredMethods()`.
+

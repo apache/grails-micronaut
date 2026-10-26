@@ -1,0 +1,59 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements. See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License. You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Release - Verify Troubleshooting
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag to verify (e.g. v8.0.0)'
+        required: true
+        type: string
+permissions: {}
+concurrency:
+  group: release-verify-${{ inputs.release_tag }}
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Checkout release tooling and pinned tool versions
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.release_tag }}
+          path: project
+          persist-credentials: false
+      - name: Read release JDK pin
+        id: java
+        run: |
+          pin=$(sed -n 's/^java=//p' project/.sdkmanrc)
+          test "${pin##*-}" = librca
+          echo "version=${pin%-*}" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: liberica
+          java-version: ${{ steps.java.outputs.version }}
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          cache-disabled: true
+      - name: Add external wrapper and verification scripts to PATH
+        run: |
+          echo "$GITHUB_WORKSPACE/project" >> "$GITHUB_PATH"
+          echo "$GITHUB_WORKSPACE/project/etc/bin" >> "$GITHUB_PATH"
+      - name: Verify release
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: verify.sh "$RELEASE_TAG" "$GITHUB_WORKSPACE/grails-verify"

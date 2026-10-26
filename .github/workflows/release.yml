@@ -22,22 +22,55 @@ on:
 permissions: { }
 
 env:
+  DIST_NAME: apache-grails-micronaut
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  GRAILS_PUBLISH_RELEASE: 'true'
   JAVA_DISTRIBUTION: liberica
   # Keep synced with .sdkmanrc and etc/bin/Dockerfile.
   JAVA_VERSION: 25.0.3
+  PROJECT_NAME: Apache Grails Micronaut
+  PROJECT_DESC: >
+    Apache Grails Micronaut provides Micronaut integration for Grails applications
+    and BOMs for the supported Hibernate integrations.
+  REPO_NAME: ${{ github.event.repository.name }}
+  REPO_SLUG: ${{ github.repository }}
+  SVN_PROJECT: grails
+  SVN_FOLDER: micronaut
   TAG: ${{ github.event.release.tag_name }}
+  TARGET_BRANCH: ${{ github.event.release.target_commitish }}
+
+concurrency:
+  group: release-pipeline-${{ github.event.release.target_commitish }}
+  cancel-in-progress: false
 
 jobs:
   publish:
+    name: Stage JAR files
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+    env:
+      NEXUS_PUBLISH_USERNAME: ${{ secrets.NEXUS_STAGE_DEPLOYER_USER }}
+      NEXUS_PUBLISH_PASSWORD: ${{ secrets.NEXUS_STAGE_DEPLOYER_PW }}
+      NEXUS_PUBLISH_URL: ${{ vars.STAGING_URL }}
+      NEXUS_PUBLISH_STAGING_PROFILE_ID: ${{ secrets.STAGING_PROFILE_ID }}
     steps:
+      - name: Establish release version
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(M|RC)[0-9]+)?$ ]]
+          echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
+          echo "NEXUS_PUBLISH_DESCRIPTION=${REPO_NAME}:${TAG#v}" >> "$GITHUB_ENV"
       - name: Checkout release tag
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
           ref: ${{ github.event.release.tag_name }}
+      - name: Verify release branch
+        run: |
+          IFS=. read -r major minor _ <<< "$VERSION"
+          releaseBranch="${major}.${minor}.x"
+          test "${TARGET_BRANCH#refs/heads/}" = "$releaseBranch"
+          test "$(sed -n 's/^githubBranch=//p' gradle.properties)" = "$releaseBranch"
       - name: Store common build date
         run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
       - name: Ensure source files use common date
@@ -51,34 +84,37 @@ jobs:
         uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         with:
           cache-provider: basic
-          develocity-access-key: ${{ secrets.DEVELOCITY_ACCESS_KEY }}
-      - name: Establish release version
-        run: echo "RELEASE_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
-      - name: Build and test release
-        run: ./gradlew build rat -PprojectVersion=${RELEASE_VERSION} --no-build-cache
-      - name: Initialize staging repository
+          develocity-access-key: ${{ secrets.GRAILS_DEVELOCITY_ACCESS_KEY }}
+      - name: Run pre-release
+        uses: apache/grails-github-actions/pre-release@asf
         env:
-          GRAILS_PUBLISH_RELEASE: 'true'
-          NEXUS_PUBLISH_USERNAME: ${{ secrets.NEXUS_STAGE_DEPLOYER_USER }}
-          NEXUS_PUBLISH_PASSWORD: ${{ secrets.NEXUS_STAGE_DEPLOYER_PW }}
-          NEXUS_PUBLISH_URL: ${{ vars.STAGING_URL }}
-          NEXUS_PUBLISH_STAGING_PROFILE_ID: ${{ secrets.STAGING_PROFILE_ID }}
-        run: ./gradlew initializeSonatypeStagingRepository -PprojectVersion=${RELEASE_VERSION}
+          RELEASE_VERSION: ${{ env.VERSION }}
       - name: Set up GPG
         env:
           GPG_KEY: ${{ secrets.GRAILS_GPG_KEY }}
         run: |
           echo "${GPG_KEY}" | gpg --batch --import
           gpg --list-keys
+      - name: Record release commit
+        id: release-commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Build and test release
+        env:
+          SIGNING_KEY: ${{ secrets.GPG_KEY_ID }}
+        run: ./gradlew build rat --no-build-cache
+      - name: Initialize staging repository
+        run: ./gradlew initializeSonatypeStagingRepository
       - name: Publish four Grails Micronaut artifacts
         env:
-          GRAILS_PUBLISH_RELEASE: 'true'
-          NEXUS_PUBLISH_USERNAME: ${{ secrets.NEXUS_STAGE_DEPLOYER_USER }}
-          NEXUS_PUBLISH_PASSWORD: ${{ secrets.NEXUS_STAGE_DEPLOYER_PW }}
-          NEXUS_PUBLISH_URL: ${{ vars.STAGING_URL }}
-          NEXUS_PUBLISH_STAGING_PROFILE_ID: ${{ secrets.STAGING_PROFILE_ID }}
           SIGNING_KEY: ${{ secrets.GPG_KEY_ID }}
-        run: ./gradlew publishToSonatype closeSonatypeStagingRepository aggregateChecksums aggregatePublishedArtifacts -PprojectVersion=${RELEASE_VERSION} --no-build-cache
+        run: >
+          ./gradlew -x initializeSonatypeStagingRepository
+          findSonatypeStagingRepository publishToSonatype
+          aggregateChecksums aggregatePublishedArtifacts --no-build-cache
+      - name: Close staging repository
+        run: >
+          ./gradlew -x initializeSonatypeStagingRepository
+          findSonatypeStagingRepository closeSonatypeStagingRepository
       - name: Generate build date file
         run: echo "$SOURCE_DATE_EPOCH" > build/BUILD_DATE.txt
       - name: Upload build date, checksums and published artifacts
@@ -89,3 +125,208 @@ jobs:
             build/BUILD_DATE.txt
             build/CHECKSUMS.txt
             build/PUBLISHED_ARTIFACTS.txt
+    outputs:
+      sha: ${{ steps.release-commit.outputs.sha }}
+
+  source:
+    name: Create source distribution
+    needs: publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Establish release version
+        run: echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
+      - name: Checkout the released commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.publish.outputs.sha }}
+          path: grails-micronaut
+          persist-credentials: false
+      - name: Remove wrappers and files that must not ship
+        run: |
+          for root in grails-micronaut grails-micronaut/build-logic; do
+            rm -f "$root/gradle/wrapper/gradle-wrapper.jar" "$root/gradle/wrapper/gradle-wrapper.properties"
+            rm -f "$root/gradlew" "$root/gradlew.bat"
+          done
+          rm -rf grails-micronaut/.git grails-micronaut/.github grails-micronaut/.omo grails-micronaut/.worktrees grails-micronaut/.claude/worktrees
+          rm -f grails-micronaut/KEYS grails-micronaut/.mailmap
+      - name: Include verification manifests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for file in CHECKSUMS PUBLISHED_ARTIFACTS BUILD_DATE; do
+            gh release download "$TAG" --repo "$REPO_SLUG" --pattern "$file.txt" --dir .
+            mv "$file.txt" "grails-micronaut/$file"
+          done
+      - name: Ensure source files use common date
+        run: |
+          SOURCE_DATE_EPOCH=$(cat grails-micronaut/BUILD_DATE)
+          find . -depth \( -type f -o -type d \) -exec touch -d "@${SOURCE_DATE_EPOCH}" {} +
+          find . -depth -type l -exec touch -h -d "@${SOURCE_DATE_EPOCH}" {} +
+      - name: Create source ZIP
+        run: >
+          zip -yr "${DIST_NAME}-${VERSION}-src.zip" grails-micronaut
+          -x 'grails-micronaut/.git/*' -x 'grails-micronaut/.github/*'
+          -x 'grails-micronaut/.omo/*' -x 'grails-micronaut/.worktrees/*'
+          -x 'grails-micronaut/.claude/worktrees/*'
+      - name: Set up GPG
+        env:
+          GPG_KEY: ${{ secrets.GRAILS_GPG_KEY }}
+        run: echo "$GPG_KEY" | gpg --batch --import
+      - name: Sign and checksum source ZIP
+        env:
+          SIGNING_KEY: ${{ secrets.GPG_KEY_ID }}
+        run: |
+          gpg --default-key "$SIGNING_KEY" --batch --yes --pinentry-mode loopback --armor --detach-sign "${DIST_NAME}-${VERSION}-src.zip"
+          sha512sum "${DIST_NAME}-${VERSION}-src.zip" > "${DIST_NAME}-${VERSION}-src.zip.sha512"
+      - name: Upload signed source distribution
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          tag_name: ${{ env.TAG }}
+          fail_on_unmatched_files: true
+          files: |
+            ${{ env.DIST_NAME }}-${{ env.VERSION }}-src.zip
+            ${{ env.DIST_NAME }}-${{ env.VERSION }}-src.zip.asc
+            ${{ env.DIST_NAME }}-${{ env.VERSION }}-src.zip.sha512
+      - name: Remove temporary release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for file in CHECKSUMS PUBLISHED_ARTIFACTS BUILD_DATE; do
+            gh release delete-asset "$TAG" "$file.txt" --repo "$REPO_SLUG" --yes
+          done
+
+  upload:
+    name: Stage source distribution and print vote
+    needs: [publish, source]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      SVN_USERNAME: ${{ secrets.SVC_DIST_GRAILS_USERNAME }}
+      SVN_PASSWORD: ${{ secrets.SVC_DIST_GRAILS_PASSWORD }}
+    steps:
+      - name: Establish release version
+        run: echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y subversion subversion-tools gettext-base
+      - name: Ensure development folder exists
+        run: |
+          for folder in "$SVN_PROJECT" "$SVN_PROJECT/$SVN_FOLDER"; do
+            url="https://dist.apache.org/repos/dist/dev/$folder"
+            if ! svn ls "$url" --username "$SVN_USERNAME" --password "$SVN_PASSWORD" --non-interactive; then
+              svnmucc --username "$SVN_USERNAME" --password "$SVN_PASSWORD" --non-interactive mkdir "$url" -m "Create $folder dev folder"
+            fi
+          done
+      - name: Checkout development repository
+        run: svn checkout --username "$SVN_USERNAME" --password "$SVN_PASSWORD" --non-interactive "https://dist.apache.org/repos/dist/dev/$SVN_PROJECT/$SVN_FOLDER" dev-repo
+      - name: Download signed source and stage it
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Never silently replace artifacts that voters may already be reviewing.
+          test ! -e "dev-repo/$VERSION"
+          mkdir -p "dev-repo/$VERSION/sources"
+          gh release download "$TAG" --repo "$REPO_SLUG" --pattern "${DIST_NAME}-${VERSION}-src.zip*" --dir "dev-repo/$VERSION/sources"
+          cd "dev-repo/$VERSION/sources"
+          sha512sum -c "${DIST_NAME}-${VERSION}-src.zip.sha512"
+          cd ../..
+          svn add "$VERSION"
+          svn commit -m "Upload $PROJECT_NAME source distribution for $VERSION" --username "$SVN_USERNAME" --password "$SVN_PASSWORD" --non-interactive
+          svn info "$VERSION" > DIST_SVN_REVISION.txt
+      - name: Upload distribution SVN revision
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          tag_name: ${{ env.TAG }}
+          files: dev-repo/DIST_SVN_REVISION.txt
+      - name: Checkout release templates
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.publish.outputs.sha }}
+          path: templates
+          persist-credentials: false
+      - name: Print PMC vote email
+        env:
+          SHA: ${{ needs.publish.outputs.sha }}
+        run: |
+          DIST_SVN_REVISION=$(awk '/Last Changed Rev:/ {print $4}' dev-repo/DIST_SVN_REVISION.txt)
+          export DIST_SVN_REVISION
+
+          echo '::group::Grails PMC Vote Email'
+          echo 'To: dev@grails.apache.org'
+          echo "Subject: [VOTE] Release ${PROJECT_NAME} ${VERSION}"
+          sed '/^#/d' templates/.github/vote_templates/staged.txt | envsubst
+          echo '::endgroup::'
+
+  release:
+    name: VOTE SUCCEEDED - Release artifacts manually
+    environment: release
+    needs: [publish, source, upload]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Establish release version
+        run: echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
+      - name: Checkout release
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.publish.outputs.sha }}
+          persist-credentials: false
+      - name: Install template tools
+        run: sudo apt-get update && sudo apt-get install -y gettext-base
+      - name: Print result and manual promotion instructions
+        run: |
+          echo 'Confirm at least 72 hours and a successful Grails PMC vote before promotion.'
+          echo 'To: dev@grails.apache.org'
+          echo "Subject: [RESULT][VOTE] ${PROJECT_NAME} ${VERSION}"
+          sed '/^#/d' .github/vote_templates/vote_succeeded.txt | envsubst
+          echo "Run .github/scripts/releaseJarFiles.sh ${REPO_NAME}:${VERSION} <ASF_USER>"
+          echo "Run .github/scripts/releaseDistributions.sh ${TAG} ${SVN_FOLDER} <ASF_USER>"
+          echo "Record MICRONAUT-${VERSION} at https://reporter.apache.org/addrelease.html?grails"
+
+  announcement:
+    name: VOTE SUCCEEDED - Confirm publication and prepare announcement
+    environment: docs
+    needs: [publish, release]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Establish release version
+        run: echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
+      - name: Checkout release
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.publish.outputs.sha }}
+          persist-credentials: false
+      - name: Install template tools
+        run: sudo apt-get update && sudo apt-get install -y gettext-base
+      - name: Print announcement
+        run: |
+          echo 'Approve this checkpoint only after manual promotion and mirror availability.'
+          echo 'There is no separate documentation distribution or site deployment in this repository.'
+          echo 'Send from your @apache.org address after updating the release links.'
+          echo 'To: announce@apache.org, dev@grails.apache.org, users@grails.apache.org'
+          echo "Subject: [ANNOUNCE] ${PROJECT_NAME} ${VERSION}"
+          sed '/^#/d' .github/vote_templates/announce.txt | envsubst
+
+  close:
+    name: VOTE SUCCEEDED - Close release
+    environment: close
+    needs: [publish, release, announcement]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      actions: write
+    steps:
+      - name: Checkout release
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.publish.outputs.sha }}
+          fetch-depth: 0
+      - name: Run post-release
+        uses: apache/grails-github-actions/post-release@asf
+        env:
+          RELEASE_VERSION: ${{ env.TAG }}
+      - name: Merge-back reminder
+        run: echo 'Merge the merge-back PR with a merge commit, not squash or rebase, so the release tag enters maintenance history.'
